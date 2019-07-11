@@ -1,4 +1,5 @@
 import logging
+import time
 from functools import partial
 from typing import Optional
 import re
@@ -32,8 +33,8 @@ class FrequencySweepReIm(MultiParameter):
         self._instrument = instrument
         self.set_sweep(start, stop, npts)
         self.names = ('real', 'imaginary')
-        self.labels = ('{} Re'.format(instrument.short_name),
-                        '{} Im'.format(instrument.short_name))
+        self.labels = ('{}_Re'.format(instrument.short_name) + instrument.trace_name,
+                        '{}_Im'.format(instrument.short_name) + instrument.trace_name)
         self.units = ('', '')
         self.setpoint_units = (('Hz',), ('Hz',))
         self.setpoint_labels = (('{} frequency'.format(instrument.short_name),), ('{} frequency'.format(instrument.short_name),))
@@ -57,6 +58,33 @@ class FrequencySweepReIm(MultiParameter):
             re = data[0:-1:2]
         return re, im
 
+class FrequencySweepMag(ArrayParameter):
+   
+    def __init__(self, name, instrument, start, stop, npts):
+        super().__init__(name, shape=(npts,),
+                         instrument=instrument,
+                         unit='dB',
+                         label='{}_mag'.format(instrument.short_name) + instrument.trace_name,
+                         setpoint_units=('Hz',),
+                         setpoint_labels=('{} frequency'.format(instrument.short_name),),
+                         setpoint_names=('{}_frequency'.format(instrument.short_name),))
+        self.set_sweep(start, stop, npts)
+
+    def set_sweep(self, start, stop, npts):
+        #  needed to update config of the software parameter on sweep change
+        # freq setpoints tuple as needs to be hashable for look up
+        f = tuple(np.linspace(int(start), int(stop), num=npts))
+        self.setpoints = (f,)
+        self.shape = (npts,)
+
+    def get_raw(self):
+        data = self._instrument._get_sweep_data()
+        re = data[ 0::2 ] 
+        im = data[ 1::2 ]
+        if len(re) != len(im):
+            re = data[0:-1:2]
+        s = 10 * np.log10( np.square( re ) + np.square( im ) )
+        return s
 
 class ANVNA(VisaInstrument):
     """
@@ -170,7 +198,13 @@ class ANVNA(VisaInstrument):
                            stop=self.stop(),
                            npts=self.points(),
                            parameter_class=FrequencySweepReIm)
-
+        
+        self.add_parameter(name='trace_mag',
+                           start=self.start(),
+                           stop=self.stop(),
+                           npts=self.points(),
+                           parameter_class=FrequencySweepMag)
+        
         self.add_parameter('output_format',
                            get_cmd='FORMAT:DATa?',
                            get_parser=str,
@@ -184,10 +218,21 @@ class ANVNA(VisaInstrument):
 
         #Default parameters, mess with it on your own risk
         self.output_format("REAL")   
+
+    def _WaitComplete(self):  
+        result = 0
+        print("Waiting...")
+        while result == 0:
+            time.sleep(.1) # pause exection in seconds (s)
+            result = (self.visa_handle.query("*OPC?")).rstrip()
+        print("Done!")
     
     def _get_sweep_data(self):
         #self.visa_handle.write('FORMAT:DATa REAL')
-        return self.visa_handle.query_binary_values('CALCulate1:PARAmeter1:DATA:SDATa?', datatype='d', is_big_endian=False)
+        result = self.visa_handle.query_binary_values('CALCulate1:PARAmeter1:DATA:SDATa?', datatype='d', is_big_endian=False)
+        self._WaitComplete()
+        result1 = self.visa_handle.query_binary_values('CALCulate1:PARAmeter1:DATA:SDATa?', datatype='d', is_big_endian=False)
+        return result
 
     def _set_start(self, val):
         self.write('SENS:FREQ:STAR {}'.format(val))
