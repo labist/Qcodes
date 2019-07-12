@@ -4,6 +4,7 @@ from functools import partial
 from typing import Optional
 import re
 
+from pyvisa.errors import VisaIOError
 from qcodes import VisaInstrument
 from qcodes import ChannelList, InstrumentChannel
 from qcodes.utils import validators as vals
@@ -52,14 +53,14 @@ class FrequencySweepReIm(MultiParameter):
         #self._instrument.format('Complex')
         data = self._instrument._get_sweep_data()
         #self._instrument.format(old_format)
-        re = data[ 0::2 ] 
+        re = data[ 0::2 ]
         im = data[ 1::2 ]
         if len(re) != len(im):
             re = data[0:-1:2]
         return re, im
 
 class FrequencySweepMag(ArrayParameter):
-   
+
     def __init__(self, name, instrument, start, stop, npts):
         super().__init__(name, shape=(npts,),
                          instrument=instrument,
@@ -79,7 +80,7 @@ class FrequencySweepMag(ArrayParameter):
 
     def get_raw(self):
         data = self._instrument._get_sweep_data()
-        re = data[ 0::2 ] 
+        re = data[ 0::2 ]
         im = data[ 1::2 ]
         if len(re) != len(im):
             re = data[0:-1:2]
@@ -99,24 +100,27 @@ class ANVNA(VisaInstrument):
                          min_power=-60, max_power=-10, trace_name='S11') -> None:
 
         super().__init__(name=name, address=address, terminator='\n')
-        
+
         #Get info about the model
         #fullmodel = self.get_idn()['model']
         #if fullmodel is not None:
         #    model = fullmodel.split('-')[0]
         #else:
         #    raise RuntimeError("Could not determine Anritsu model")
-        
+
         #mFrequency = {'MS46122B':(10e6, 8e9)}
         #if model not in mFrequency.keys():
         #    raise RuntimeError("Unsupported Anritsu model {}".format(model))
         #self._min_freq: float
         #self._max_freq: float
         #self._min_freq, self._max_freq = mFrequency[model]
-        
+
         self.trace_name = trace_name
         self.min_freq = min_freq
         self.max_freq = max_freq
+
+        #Set the device in continuous sweep mode
+        self.visa_handle.write(":SENS:HOLD:FUNC CONT")
 
         # Drive power
         self.add_parameter('power',
@@ -127,7 +131,7 @@ class ANVNA(VisaInstrument):
                            unit='dBm',
                            vals=Numbers(min_value=min_power,
                                         max_value=max_power))
-        
+
         # IF bandwidth
         self.add_parameter('if_bandwidth',
                            label='IF Bandwidth',
@@ -189,7 +193,7 @@ class ANVNA(VisaInstrument):
                            get_cmd='SENS:SWE:POIN?',
                            get_parser=int,
                            set_cmd=self._set_points,
-                           unit='')  
+                           unit='')
 
         self.connect_message()
 
@@ -198,41 +202,53 @@ class ANVNA(VisaInstrument):
                            stop=self.stop(),
                            npts=self.points(),
                            parameter_class=FrequencySweepReIm)
-        
+
         self.add_parameter(name='trace_mag',
                            start=self.start(),
                            stop=self.stop(),
                            npts=self.points(),
                            parameter_class=FrequencySweepMag)
-        
+
         self.add_parameter('output_format',
                            get_cmd='FORMAT:DATa?',
                            get_parser=str,
                            set_cmd='FORMAT:DATa {}',
                            vals=Enum("REAL", "REAL32", "ASC"))
-        
+
         self.add_parameter('trace',
                            label='Trace',
                            get_cmd=self._Sparam,
                            set_cmd=self._set_Sparam)
 
         #Default parameters, mess with it on your own risk
-        self.output_format("REAL")   
+        self.output_format("REAL")
 
-    def _WaitComplete(self):  
+    def _WaitComplete(self):
         result = 0
         print("Waiting...")
         while result == 0:
             time.sleep(.1) # pause exection in seconds (s)
             result = (self.visa_handle.query("*OPC?")).rstrip()
         print("Done!")
-    
+
+
     def _get_sweep_data(self):
-        #self.visa_handle.write('FORMAT:DATa REAL')
-        result = self.visa_handle.query_binary_values('CALCulate1:PARAmeter1:DATA:SDATa?', datatype='d', is_big_endian=False)
-        self._WaitComplete()
-        result1 = self.visa_handle.query_binary_values('CALCulate1:PARAmeter1:DATA:SDATa?', datatype='d', is_big_endian=False)
-        return result
+        """ Start a sweep and get the data once the sweep is completed.
+        """
+        self.visa_handle.write(":TRIG:SING")
+        log.info("Sweep started")
+        try:
+            result = self.visa_handle.query_binary_values('CALCulate1:PARAmeter1:DATA:SDATa?', datatype='d', is_big_endian=False)
+            return result
+        except VisaIOError as maybe_timeout:
+            if "Timeout" in maybe_timeout.description:
+                log.warning("Function timed out before the sweep could be \
+                     completed. \n You may have to increase the timeout \
+                     with .timeout()")
+            raise maybe_timeout
+
+
+
 
     def _set_start(self, val):
         self.write('SENS:FREQ:STAR {}'.format(val))
@@ -246,7 +262,7 @@ class ANVNA(VisaInstrument):
             log.warning(
                 "Could not set start to {} setting it to {}".format(val, start))
         self.update_traces()
-    
+
     def _set_stop(self, val):
         start = self.start()
         if val <= start:
@@ -263,15 +279,15 @@ class ANVNA(VisaInstrument):
     def _set_center(self, val):
         self.write('SENS:FREQ:CENT {}'.format(val))
         self.update_traces()
-    
+
     def _set_points(self, val):
         self.write('SENS:SWE:POIN {}'.format(val))
         self.update_traces()
-    
+
     def _set_span(self, val):
         self.write('SENS:FREQ:SPAN {}'.format(val))
         self.update_traces()
-            
+
     def update_traces(self):
                     """ updates start, stop and npts of all trace parameters"""
                     start = self.start()
@@ -299,4 +315,3 @@ class ANVNA(VisaInstrument):
             raise ValueError("Invalid S parameter spec")
         self.write(f"CALC:PAR:DEF {val}")
         self.trace_name = val
-        
