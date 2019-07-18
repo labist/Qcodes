@@ -10,7 +10,7 @@ from qcodes import ChannelList, InstrumentChannel
 from qcodes.utils import validators as vals
 import numpy as np
 from qcodes import MultiParameter, ArrayParameter
-from qcodes.utils.validators import Ints, Numbers, Enum, Bool
+from qcodes.utils.validators import Ints, Numbers, Enum, Bool, Strings
 
 log = logging.getLogger(__name__)
 
@@ -20,7 +20,7 @@ class FrequencySweepReIm(MultiParameter):
     Sweep that return Real and Imaginary part of the S parameters.
     """
 
-    def __init__(self, name, instrument, start, stop, npts):
+    def __init__(self, name, instrument, start, stop, npts, trnm):
         """
         Args:
             name: parameter name
@@ -28,23 +28,26 @@ class FrequencySweepReIm(MultiParameter):
             start: starting frequency of sweep
             stop: ending frequency of sweep
             npts: number of points in frequency sweep
+            trnm: tracename
         """
 
         super().__init__(name, names=("", ""), shapes=((), ()))
         self._instrument = instrument
-        self.set_sweep(start, stop, npts)
+        self.set_sweep(start, stop, npts, trnm)
         self.names = ('real', 'imaginary')
-        self.labels = ('{}_Re'.format(instrument.short_name) + instrument.trace_name,
-                        '{}_Im'.format(instrument.short_name) + instrument.trace_name)
+        self.labels = ('{}_Re_'.format(instrument.short_name) +trnm,
+                        '{}_Im_'.format(instrument.short_name) +trnm)
         self.units = ('', '')
         self.setpoint_units = (('Hz',), ('Hz',))
         self.setpoint_labels = (('{} frequency'.format(instrument.short_name),), ('{} frequency'.format(instrument.short_name),))
-        self.setpoint_names = (('{}_frequency'.format(instrument.short_name),), ('{}_frequency'.format(instrument.short_name),))
+        self.setpoint_names = (('{}_re_im_frequency'.format(instrument.short_name),), ('{}_re_im_frequency'.format(instrument.short_name),))
 
-    def set_sweep(self, start, stop, npts):
+    def set_sweep(self, start, stop, npts, trnm):
         #  needed to update config of the software parameter on sweep change
         # freq setpoints tuple as needs to be hashable for look up
         f = tuple(np.linspace(int(start), int(stop), num=npts))
+        self.labels = ('{}_Re_'.format(self._instrument.short_name) +trnm,
+                        '{}_Im_'.format(self._instrument.short_name) +trnm)
         self.setpoints = ((f,), (f,))
         self.shapes = ((npts,), (npts,))
 
@@ -57,21 +60,21 @@ class FrequencySweepReIm(MultiParameter):
         im = data[ 1::2 ]
         if len(re) != len(im):
             re = data[0:-1:2]
-        return re, im
+        return re, im    
 
 class FrequencySweepMag(ArrayParameter):
 
-    def __init__(self, name, instrument, start, stop, npts):
+    def __init__(self, name, instrument, start, stop, npts, trnm):
         super().__init__(name, shape=(npts,),
                          instrument=instrument,
                          unit='dB',
-                         label='{}_mag'.format(instrument.short_name) + instrument.trace_name,
+                         label='{}_mag_'.format(instrument.short_name) +trnm,
                          setpoint_units=('Hz',),
                          setpoint_labels=('{} frequency'.format(instrument.short_name),),
-                         setpoint_names=('{}_frequency'.format(instrument.short_name),))
-        self.set_sweep(start, stop, npts)
+                         setpoint_names=('{}_mag_frequency'.format(instrument.short_name),))
+        self.set_sweep(start, stop, npts, trnm)
 
-    def set_sweep(self, start, stop, npts):
+    def set_sweep(self, start, stop, npts, trnm):
         #  needed to update config of the software parameter on sweep change
         # freq setpoints tuple as needs to be hashable for look up
         f = tuple(np.linspace(int(start), int(stop), num=npts))
@@ -100,21 +103,6 @@ class ANVNA(VisaInstrument):
                          min_power=-60, max_power=-10, trace_name='S11') -> None:
 
         super().__init__(name=name, address=address, terminator='\n')
-
-        #Get info about the model
-        #fullmodel = self.get_idn()['model']
-        #if fullmodel is not None:
-        #    model = fullmodel.split('-')[0]
-        #else:
-        #    raise RuntimeError("Could not determine Anritsu model")
-
-        #mFrequency = {'MS46122B':(10e6, 8e9)}
-        #if model not in mFrequency.keys():
-        #    raise RuntimeError("Unsupported Anritsu model {}".format(model))
-        #self._min_freq: float
-        #self._max_freq: float
-        #self._min_freq, self._max_freq = mFrequency[model]
-
         self.trace_name = trace_name
         self.min_freq = min_freq
         self.max_freq = max_freq
@@ -126,11 +114,8 @@ class ANVNA(VisaInstrument):
         self.add_parameter('power',
                            label='Power',
                            get_cmd='SOUR:POW?',
-                           get_parser=float,
-                           set_cmd='SOUR:POW {:.2f}',
-                           unit='dBm',
-                           vals=Numbers(min_value=min_power,
-                                        max_value=max_power))
+                           set_cmd='SOUR:POW {}',
+                           vals=Strings())
 
         # IF bandwidth
         self.add_parameter('if_bandwidth',
@@ -193,20 +178,27 @@ class ANVNA(VisaInstrument):
                            get_cmd='SENS:SWE:POIN?',
                            get_parser=int,
                            set_cmd=self._set_points,
-                           unit='')
+                           unit='',
+                           vals=Ints(min_value=1,max_value=10000))
 
-        self.connect_message()
+        self.add_parameter('trace',
+                           label='Trace',
+                           get_cmd=self._Sparam,
+                           set_cmd=self._set_Sparam, 
+                           vals=Strings())
 
         self.add_parameter(name='trace_re_im',
                            start=self.start(),
                            stop=self.stop(),
                            npts=self.points(),
+                           trnm=self.trace(),
                            parameter_class=FrequencySweepReIm)
 
         self.add_parameter(name='trace_mag',
                            start=self.start(),
                            stop=self.stop(),
                            npts=self.points(),
+                           trnm=self.trace(),
                            parameter_class=FrequencySweepMag)
 
         self.add_parameter('output_format',
@@ -214,11 +206,8 @@ class ANVNA(VisaInstrument):
                            get_parser=str,
                            set_cmd='FORMAT:DATa {}',
                            vals=Enum("REAL", "REAL32", "ASC"))
-
-        self.add_parameter('trace',
-                           label='Trace',
-                           get_cmd=self._Sparam,
-                           set_cmd=self._set_Sparam)
+        
+        self.connect_message()
 
         #Default parameters, mess with it on your own risk
         self.output_format("REAL")
@@ -242,13 +231,9 @@ class ANVNA(VisaInstrument):
             return result
         except VisaIOError as maybe_timeout:
             if "Timeout" in maybe_timeout.description:
-                log.warning("Function timed out before the sweep could be \
-                     completed. \n You may have to increase the timeout \
-                     with .timeout()")
+                log.warning("Function timed out before the sweep could be completed. You may have to increase the timeout \
+                with .timeout()")
             raise maybe_timeout
-
-
-
 
     def _set_start(self, val):
         self.write('SENS:FREQ:STAR {}'.format(val))
@@ -293,12 +278,14 @@ class ANVNA(VisaInstrument):
                     start = self.start()
                     stop = self.stop()
                     npts = self.points()
+                    trnm = self.trace()
                     for _, parameter in self.parameters.items():
                         if isinstance(parameter, (ArrayParameter, MultiParameter)):
                             try:
-                                parameter.set_sweep(start, stop, npts)
+                                parameter.set_sweep(start, stop, npts, trnm)
                             except AttributeError:
                                 pass
+
     def _Sparam(self) -> str:
         """
         Extrace S_parameter from returned PNA format
@@ -315,3 +302,4 @@ class ANVNA(VisaInstrument):
             raise ValueError("Invalid S parameter spec")
         self.write(f"CALC:PAR:DEF {val}")
         self.trace_name = val
+        self.update_traces()
