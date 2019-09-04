@@ -29,7 +29,7 @@ class LbB(Instrument):
     
     def __init__(self, name, device_id=1, api=None):
         
-        self.ffudge = 1e8
+        self.ffudge = 1e-1 # Units in Hz
         
         if not api:
             self.api = lms.VNX_LSG_API.default()
@@ -112,10 +112,10 @@ class LbB(Instrument):
                 
         self.add_parameter(name='frequency',
                           label='Frequency',
-                          unit='GHz',
+                          unit='Hz',
                           get_cmd=lambda : self.api.get_frequency(self._device_id)/self.ffudge,
                           set_cmd=lambda f : self.api.set_frequency(self._device_id, int(f * self.ffudge))
-                          ) #in GHz
+                          ) #in Hz
         
         self.add_parameter(name='power',
                           label='Power',
@@ -131,29 +131,29 @@ class LbB(Instrument):
         
         self.add_parameter(name='start_frequency',
                           label='Start Frequency',
-                          unit='GHz',
+                          unit='Hz',
                           get_cmd=lambda : self.api.get_start_frequency(self._device_id)/self.ffudge,
                           set_cmd=lambda f : self._freq_set_start(int(f * self.ffudge))
-                          ) #in GHz
+                          ) #in Hz
         
         self.add_parameter(name='end_frequency',
                           label='End Frequency',
-                          unit='GHz',
+                          unit='Hz',
                           get_cmd=lambda : self.api.get_end_frequency(self._device_id)/self.ffudge,
                           set_cmd=lambda f : self._freq_set_end(int(f * self.ffudge))
-                          ) #in GHz  
+                          ) #in Hz  
         
         self.add_parameter(name='max_frequency',
                           label='Maximum Frequency',
-                          unit='GHz',
+                          unit='Hz',
                           get_cmd=lambda : self.api.get_max_freq(self._device_id)/self.ffudge
-                          ) #in GHz
+                          ) #in Hz
         
         self.add_parameter(name='min_frequency',
                           label='Minimum Frequency',
-                          unit='GHz',
+                          unit='Hz',
                           get_cmd=lambda : self.api.get_min_freq(self._device_id)/self.ffudge
-                          ) #in GHz
+                          ) #in Hz
         
         self.add_parameter(name='max_power',
                           label='Maximum Power',
