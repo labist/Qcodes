@@ -6,6 +6,7 @@ import os
 import logging
 from copy import copy
 import qcodes.logger as logger
+from qcodes.logger.log_analysis import capture_dataframe
 import qcodes as qc
 
 
@@ -94,7 +95,8 @@ def AMI430_3D():
 
 def test_get_log_file_name():
     fp = logger.logger.get_log_file_name().split(os.sep)
-    assert fp[-1] == logger.logger.PYTHON_LOG_NAME
+    assert str(os.getpid()) in fp[-1]
+    assert logger.logger.PYTHON_LOG_NAME in fp[-1]
     assert fp[-2] == logger.logger.LOGGING_DIR
     assert fp[-3] == '.qcodes'
 
@@ -198,7 +200,7 @@ def test_filter_without_started_logger_raises(AMI430_3D):
 @pytest.mark.usefixtures("remove_root_handlers")
 def test_capture_dataframe():
     root_logger = logging.getLogger()
-    with logger.capture_dataframe() as (_, cb):
+    with capture_dataframe() as (_, cb):
         root_logger.debug(TEST_LOG_MESSAGE)
         df = cb()
     assert len(df) == 1

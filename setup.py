@@ -30,12 +30,12 @@ install_requires = [
     'pandas',
     'tabulate',
     'tqdm',
-    'applicationinsights'
+    'applicationinsights',
+    'matplotlib>=2.2.3',
+    "dataclasses;python_version<'3.7'",  # can be removed once we drop support for python 3.6
+    "requirements-parser",
+    "importlib-metadata;python_version<'3.8'"
 ]
-
-if sys.version_info.minor < 7:
-    install_requires.append('dataclasses')
-
 
 setup(name='qcodes',
       version=versioneer.get_version(),
@@ -48,12 +48,15 @@ setup(name='qcodes',
                   'Copenhagen / Delft / Sydney / Microsoft quantum computing '
                   'consortium',
       long_description=readme(),
+      long_description_content_type='text/x-rst',
       url='https://github.com/QCoDeS/Qcodes',
       classifiers=[
           'Development Status :: 3 - Alpha',
           'Intended Audience :: Science/Research',
           'Programming Language :: Python :: 3 :: Only',
           'Programming Language :: Python :: 3.6',
+          'Programming Language :: Python :: 3.7',
+          'Programming Language :: Python :: 3.8',
           'Topic :: Scientific/Engineering'
       ],
       license='MIT',
@@ -65,7 +68,8 @@ setup(name='qcodes',
                                'instrument/sims/*.yaml',
                                'tests/dataset/fixtures/2018-01-17/*/*',
                                'tests/drivers/auxiliary_files/*',
-                               'py.typed']},
+                               'py.typed', 'dist/schemas/*',
+                               'dist/tests/station/*']},
       install_requires=install_requires,
 
       test_suite='qcodes.tests',

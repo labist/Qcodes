@@ -20,20 +20,22 @@ from qcodes.dataset.linked_datasets.links import links_to_str
 
 def extract_runs_into_db(source_db_path: str,
                          target_db_path: str, *run_ids: int,
-                         upgrade_source_db: bool=False,
-                         upgrade_target_db: bool=False) -> None:
+                         upgrade_source_db: bool = False,
+                         upgrade_target_db: bool = False) -> None:
     """
     Extract a selection of runs into another DB file. All runs must come from
     the same experiment. They will be added to an experiment with the same name
-    and sample_name in the target db. If such an experiment does not exist, it
+    and ``sample_name`` in the target db. If such an experiment does not exist, it
     will be created.
 
     Args:
         source_db_path: Path to the source DB file
         target_db_path: Path to the target DB file. The target DB file will be
           created if it does not exist.
-        run_ids: The run_ids of the runs to copy into the target DB file
+        run_ids: The ``run_id``'s of the runs to copy into the target DB file
         upgrade_source_db: If the source DB is found to be in a version that is
+          not the newest, should it be upgraded?
+        upgrade_target_db: If the target DB is found to be in a version that is
           not the newest, should it be upgraded?
     """
     # Check for versions
@@ -52,11 +54,10 @@ def extract_runs_into_db(source_db_path: str,
                  'upgrade_target_db=True to auto-upgrade the target DB file.')
             return
 
-
     source_conn = connect(source_db_path)
 
     # Validate that all runs are in the source database
-    do_runs_exist = is_run_id_in_database(source_conn, run_ids)
+    do_runs_exist = is_run_id_in_database(source_conn, *run_ids)
     if False in do_runs_exist.values():
         source_conn.close()
         non_existing_ids = [rid for rid in run_ids if not do_runs_exist[rid]]
@@ -158,7 +159,7 @@ def _extract_single_dataset_into_db(dataset: DataSet,
                                     target_exp_id: int) -> None:
     """
     NB: This function should only be called from within
-    :meth:extract_runs_into_db
+    meth:`extract_runs_into_db`
 
     Insert the given dataset into the specified database file as the latest
     run.
@@ -168,7 +169,7 @@ def _extract_single_dataset_into_db(dataset: DataSet,
     Args:
         dataset: A dataset representing the run to be copied
         target_conn: connection to the DB. Must be atomically guarded
-        target_exp_id: The exp_id of the (target DB) experiment in which to
+        target_exp_id: The ``exp_id`` of the (target DB) experiment in which to
           insert the run
     """
 
