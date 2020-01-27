@@ -197,7 +197,7 @@ def get_DB_debug() -> bool:
     return bool(qcodes.config["core"]["db_debug"])
 
 
-def initialise_database(journal_mode: Optional[str] = 'WAL') -> None:
+def initialise_database(journal_mode: Optional[str] = 'DELETE') -> None:
     """
     Initialise a database in the location specified by the config object
     and set ``atomic commit and rollback mode`` of the db. The db is created
