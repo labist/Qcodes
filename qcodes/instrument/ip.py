@@ -10,7 +10,8 @@ log = logging.getLogger(__name__)
 
 class IPInstrument(Instrument):
     r"""
-    Bare socket ethernet instrument implementation.
+    Bare socket ethernet instrument implementation. Use of `VisaInstrument`
+    is promoted instead of this.
 
     Args:
         name: What this instrument is called locally.
@@ -116,6 +117,7 @@ class IPInstrument(Instrument):
             if self._socket is not None:
                 self._socket.close()
             self._socket = None
+            raise
 
     def _disconnect(self) -> None:
         if self._socket is None:
