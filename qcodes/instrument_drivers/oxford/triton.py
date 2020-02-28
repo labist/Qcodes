@@ -387,3 +387,36 @@ class Triton(IPInstrument):
 
     def _recv(self):
         return super()._recv().rstrip()
+
+class Triton300(Triton):
+    '''
+    Triton 300 Driver.
+    
+    Automatically adjust heater range for Triton 300
+    '''
+    
+    def __init__(self, name, address=None, port=None, terminator='\r\n',
+                tmpfile=None, timeout=20, **kwargs):
+    
+        super().__init__(name, address=address, port=port,
+                        terminator=terminator, timeout=timeout, **kwargs)
+                    
+        self.add_parameter(name='pid_setpoint_autorange',
+                    label='PID temperature setpoint',
+                    unit='K',
+                    get_cmd=partial(self._get_control_param, 'TSET'),
+                    set_cmd=self._set_pid_setpoint_autorange )
+
+    def _set_pid_setpoint_autorange(self, temp):
+        ''' Set the PID setpoint, automatically adjusting the heater range
+        '''
+        if(temp < 0.065):
+            self._set_control_param('RANGE', 1)
+        elif(temp < 0.15):
+            self._set_control_param('RANGE', 3.16)
+        elif(temp < 0.5):
+            self._set_control_param('RANGE', 10)
+        else:
+            self._set_control_param('RANGE', 31.6)
+
+        self._set_control_param('TSET', temp)
