@@ -163,9 +163,9 @@ class Triton(IPInstrument):
                        ':VSET:[' + str(x) + ' ' + str(y) + ' ' + str(z) + ']\r\n')
             self.write('SET:SYS:VRM:ACTN:RTOS\r\n')
             t_wait = self.magnet_sweep_time() * 60 + 10
-            print('Please wait ' + str(t_wait) +
-                  ' seconds for the field sweep...')
-            sleep(t_wait)
+            print('Please wait ' + str(t_wait) + ' seconds for the field sweep...')
+            while self.magnet_status() != 'IDLE':
+                pass
         else:
             print('Warning: set magnet sweep rate in range (0 , 0.2] T/min')
 
