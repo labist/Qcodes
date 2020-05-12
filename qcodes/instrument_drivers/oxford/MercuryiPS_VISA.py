@@ -99,6 +99,7 @@ class MercurySlavePS(InstrumentChannel):
         self.add_parameter('current_target',
                            label='Target current',
                            get_cmd=partial(self._param_getter, 'SIG:CSET'),
+                           set_cmd=partial(self._param_setter, 'SIG:CSET'),
                            unit='A',
                            get_parser=partial(_signal_parser, 1))
 
@@ -266,6 +267,21 @@ class MercuryiPS(VisaInstrument):
                                           y=self.GRPY.field(),
                                           z=self.GRPZ.field())
 
+        for coord in ('x', 'y', 'z'):
+            self.add_parameter(name=f'{coord}_only',
+                    label=f'$B_{coord.upper()}$',
+                    unit='T',
+                    docstring='Ramp coordinate only, leave others untouched',
+                    get_cmd=partial(self._simple_get, coord),
+                    set_cmd=partial(self._simple_ramp, coord))
+
+            self.add_parameter(name=f'{coord}_only_blk',
+                    label=f'$B_{coord.upper()}$',
+                    unit='T',
+                    docstring='Ramp coordinate only, leave others untouched',
+                    get_cmd=partial(self._simple_get, coord),
+                    set_cmd=partial(self._simple_blk, coord))
+
         for coord, unit in zip(
                 ['x', 'y', 'z', 'r', 'theta',   'phi',     'rho'],
                 ['T', 'T', 'T', 'T', 'degrees', 'degrees', 'T']):
@@ -287,7 +303,7 @@ class MercuryiPS(VisaInstrument):
                                get_cmd=partial(self._get_component, coord),
                                set_cmd=partial(self._set_target_and_ramp, 
                                                coord, 'safe'))
-            
+
             if coord in ['r', 'theta', 'phi', 'rho']:
                 self.add_parameter(name=f'{coord}_simulramp',
                                    label=f'{coord.upper()} ramp field',
@@ -538,6 +554,31 @@ class MercuryiPS(VisaInstrument):
         self._set_target(coordinate, target)
         self.ramp(mode)
     
+    def _simple_ramp(self, coordinate: str, target: float) -> None:
+        '''Ramp coordinate only, don't mess with the others in any way
+        Also update the field_target vector for compatibility with other
+        mercury stuff
+        '''
+        fv_target = self.field_target()
+        fv_target[coordinate.lower()] = target
+        self.field_target(fv_target)
+        mod = self.submodules[f"GRP{coordinate.upper()}"]
+        mod.ramp_to_target()
+
+    def _simple_get(self, coordinate: str):
+        mod = self.submodules[f"GRP{coordinate.upper()}"]
+        return mod.field()
+
+    def _simple_blk(self, coordinate: str, target: float) -> None:
+        '''Ramp coordinate only. Block until completed
+        '''
+        self._simple_ramp(coordinate, target)
+        time.sleep(1)
+        mod = self.submodules[f"GRP{coordinate.upper()}"]
+        while mod.ramp_status() != 'HOLD':
+            time.sleep(1)
+
+
     def ask(self, cmd: str) -> str:
         """
         Since Oxford Instruments implement their own version of a SCPI-like
