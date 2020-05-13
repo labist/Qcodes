@@ -98,6 +98,7 @@ class Sense2450(InstrumentChannel):
             'user_number',
             get_cmd=None,
             set_cmd=None,
+            initial_value=1,
             vals=Ints(1, 5)
         )
 
@@ -236,6 +237,7 @@ class Source2450(InstrumentChannel):
             'user_number',
             get_cmd=None,
             set_cmd=None,
+            initial_value=1,
             vals=Ints(1, 5)
         )
 
