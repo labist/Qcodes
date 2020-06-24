@@ -1,3 +1,4 @@
+from qcodes.utils.validators import Enum
 from . import N52xx
 
 class P9372A( N52xx.PNABase ) :
@@ -10,3 +11,14 @@ class P9372A( N52xx.PNABase ) :
                          nports=2,
                          **kwargs)
 
+        self.add_parameter('rosc_source',
+                           label='Oscillator source',
+                           get_cmd='SENS:ROSC:SOUR?',
+                           set_cmd='SENS:ROSC:SOUR {}',
+                           vals=Enum("INT", "EXT"))
+
+        self.add_parameter('rosc_cond',
+                           label='Oscillator source condition',
+                           get_cmd='SENSe:ROSCillator:SOURce:CONDition?',
+                           )
+                           
