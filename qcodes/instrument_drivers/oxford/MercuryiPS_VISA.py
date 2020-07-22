@@ -572,9 +572,11 @@ class MercuryiPS(VisaInstrument):
     def _simple_blk(self, coordinate: str, target: float) -> None:
         '''Ramp coordinate only. Block until completed
         '''
+        mod = self.submodules[f"GRP{coordinate.upper()}"]
+        mod.ramp_status('HOLD')
+        time.sleep(0.2)
         self._simple_ramp(coordinate, target)
         time.sleep(1)
-        mod = self.submodules[f"GRP{coordinate.upper()}"]
         while mod.ramp_status() != 'HOLD':
             time.sleep(1)
 
