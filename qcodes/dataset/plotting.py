@@ -16,7 +16,7 @@ from matplotlib.ticker import FuncFormatter
 from contextlib import contextmanager
 
 import qcodes as qc
-from qcodes.dataset.data_set import load_by_run_spec, DataSet
+from qcodes.dataset.data_set import load_by_run_spec, DataSet, load_by_id
 from qcodes.utils.plotting import auto_color_scale_from_config
 
 from .data_export import (get_data_by_id, flatten_1D_data_for_plot,
@@ -322,7 +322,7 @@ def plot_by_id(run_id: int,
     to :func:`.plot_dataset`, see this for more details.
     """
 
-    dataset = load_by_run_spec(captured_run_id=run_id)
+    dataset = load_by_id( run_id )
     return plot_dataset(dataset,
                         axes,
                         colorbars,
