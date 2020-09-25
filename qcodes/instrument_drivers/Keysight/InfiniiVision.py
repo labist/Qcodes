@@ -250,11 +250,11 @@ class RawTrace(ArrayParameter):
         # specifiy the data format in which to read
         instr.write(':WAVeform:FORMat WORD')
         instr.write(":waveform:byteorder LSBFirst")
-        # instr.write(":WAVeform:UNSigned 0")
+        # instr.write(":WAVeform:UNSigned 1")
 
         # request the actual transfer
         data = instr._parent.visa_handle.query_binary_values(
-            'WAV:DATA?', datatype='h', is_big_endian=False)
+            'WAV:DATA?', datatype='H', is_big_endian=False)
         # the Infiniium does not include an extra termination char on binary
         # messages so we set expect_termination to False
 
