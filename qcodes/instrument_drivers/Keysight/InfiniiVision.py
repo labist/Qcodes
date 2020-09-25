@@ -186,36 +186,6 @@ class RawTrace(ArrayParameter):
         self._channel = channel
         self._instrument = instrument
 
-    @property
-    def shape(self):
-        ''' get the shape
-        '''
-        npts = int(instr.ask("WAV:POIN?"))
-        return (npts, )
-
-    @property
-    def setpoints(self):
-        '''Calculate setpoints from scope settings
-        '''
-        # To calculate set points, we must have the full preamble
-        # For the instrument to return the full preamble, the channel
-        # in question must be displayed
-
-        # shorthand
-        instr = self._instrument
-        # number of set points
-        self.npts = int(instr.ask("WAV:POIN?"))
-        # first set point
-        self.xorigin = float(instr.ask(":WAVeform:XORigin?"))
-        # step size
-        self.xincrem = float(instr.ask(":WAVeform:XINCrement?"))
-        # calculate set points
-        xdata = np.linspace(self.xorigin,
-                            self.npts * self.xincrem + self.xorigin, self.npts)
-
-        # set setpoints
-        return (xdata, )
-      
     def prepare_curvedata(self):
         """
         Prepare the scope for returning curve data
