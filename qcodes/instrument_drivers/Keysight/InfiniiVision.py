@@ -187,84 +187,73 @@ class RawTrace(ArrayParameter):
         self._instrument = instrument
 
     @property
-    def shape(self):
-        ''' get the shape
+    def npts(self):
+        ''' get the npts
         '''
+        instr = self._instrument
         npts = int(instr.ask("WAV:POIN?"))
-        return (npts, )
+        return npts
+    
+    @property
+    # def shape(self):
+    #     ''' get the shape
+    #     '''
+    #     return tuple((self.npts, ))
+    def shape(self) -> Sequence[int]:  # type: ignore[override]
+        if self._instrument is None:
+            return (0,)
+        return (self.npts,)
+    @shape.setter
+    def shape(self, val: Sequence[int]) -> None:
+        pass
 
     @property
-    def setpoints(self):
+    def xorigin(self):
+        ''' x origin of oscilloscope
+        '''
+        instr = self._instrument
+        return float(instr.ask(":WAVeform:XORigin?"))
+
+    @property
+    def xincrem(self):
+        ''' xcrement of the oscilloscope
+        '''
+        instr = self._instrument
+        return float(instr.ask(":WAVeform:XINCrement?"))
+
+    @property
+    def setpoints(self) -> Sequence:
         '''Calculate setpoints from scope settings
         '''
-        # To calculate set points, we must have the full preamble
-        # For the instrument to return the full preamble, the channel
-        # in question must be displayed
+        if self._instrument is None:
+            raise RuntimeError("Cannot return setpoints if not attached "
+                               "to instrument")
 
-        # shorthand
+        return (np.linspace(self.xorigin,
+                            self.npts * self.xincrem + self.xorigin, self.npts),)
+    @setpoints.setter
+    def setpoints(self, val: Sequence[int]) -> None:
+        pass
+    
+    @property
+    def yinc(self):
+        ''' ycrement of the oscilloscope
+        '''
         instr = self._instrument
-        # number of set points
-        self.npts = int(instr.ask("WAV:POIN?"))
-        # first set point
-        self.xorigin = float(instr.ask(":WAVeform:XORigin?"))
-        # step size
-        self.xincrem = float(instr.ask(":WAVeform:XINCrement?"))
-        # calculate set points
-        xdata = np.linspace(self.xorigin,
-                            self.npts * self.xincrem + self.xorigin, self.npts)
+        return float(instr.ask(":WAVeform:YINCrement?"))
 
-        # set setpoints
-        return (xdata, )
-      
-    def prepare_curvedata(self):
-        """
-        Prepare the scope for returning curve data
-        """
-        # To calculate set points, we must have the full preamble
-        # For the instrument to return the full preamble, the channel
-        # in question must be displayed
-
-        # shorthand
+    @property
+    def yorigin(self):
+        ''' x origin of oscilloscope
+        '''
         instr = self._instrument
-        # number of set points
-        self.npts = int(instr.ask("WAV:POIN?"))
-        # first set point
-        self.xorigin = float(instr.ask(":WAVeform:XORigin?"))
-        # step size
-        self.xincrem = float(instr.ask(":WAVeform:XINCrement?"))
-        # calculate set points
-        xdata = np.linspace(self.xorigin,
-                            self.npts * self.xincrem + self.xorigin, self.npts)
-
-        # set setpoints
-        self.setpoints = (tuple(xdata), )
-        self.shape = (self.npts, )
-
-        # make this on a per channel basis?
-        self._instrument._parent.trace_ready = True
+        return float(instr.ask(":WAVeform:YORigin?"))
 
     def get_raw(self):
-        # when get is called the setpoints have to be known already
-        # (saving data issue). Therefor create additional prepare function that
-        # queries for the size.
-        # check if already prepared
-        if not self._instrument._parent.trace_ready:
-            raise TraceNotReady('Please run prepare_curvedata to prepare '
-                                'the scope for acquiring a trace.')
 
         # shorthand
         instr = self._instrument
 
-        # set up the instrument
-        # ---------------------------------------------------------------------
-
-        # TODO: check number of points
-        # check if requested number of points is less than 500 million
-
-        # get intrument state
-        # state = instr.ask(':RSTate?')
-        # realtime mode: only one trigger is used
-        # instr._parent.acquire_mode('RTIMe')
 
         # acquire the data
         # ---------------------------------------------------------------------
@@ -280,38 +269,14 @@ class RawTrace(ArrayParameter):
         # specifiy the data format in which to read
         instr.write(':WAVeform:FORMat WORD')
         instr.write(":waveform:byteorder LSBFirst")
-        # instr.write(":WAVeform:UNSigned 0")
 
         # request the actual transfer
         data = instr._parent.visa_handle.query_binary_values(
             'WAV:DATA?', datatype='h', is_big_endian=False)
         # the Infiniium does not include an extra termination char on binary
         # messages so we set expect_termination to False
-
-        if len(data) != self.shape[0]:
-            raise TraceSetPointsChanged('{} points have been aquired and {} \
-            set points have been prepared in \
-            prepare_curvedata'.format(len(data), self.shape[0]))
-        # check x data scaling
-        xorigin = float(instr.ask(":WAVeform:XORigin?"))
-        # step size
-        xincrem = float(instr.ask(":WAVeform:XINCrement?"))
-        error = self.xorigin - xorigin
-        # this is a bad workaround
-        if error > xincrem:
-            raise TraceSetPointsChanged('{} is the prepared x origin and {} \
-            is the x origin after the measurement.'.format(self.xorigin,
-                                                           xorigin))
-        error = (self.xincrem - xincrem) / xincrem
-        if error > 1e-6:
-            raise TraceSetPointsChanged('{} is the prepared x increment and {} \
-            is the x increment after the measurement.'.format(self.xincrem,
-                                                              xincrem))
-        # y data scaling
-        yorigin = float(instr.ask(":WAVeform:YORigin?"))
-        yinc = float(instr.ask(":WAVeform:YINCrement?"))
         channel_data = np.array(data)
-        channel_data = np.multiply(channel_data, yinc) + yorigin
+        channel_data = np.multiply(channel_data, self.yinc) + self.yorigin
 
         # restore original state
         # ---------------------------------------------------------------------
@@ -319,88 +284,6 @@ class RawTrace(ArrayParameter):
         # switch display back on
         instr.write(':CHANnel{}:DISPlay ON'.format(self._channel))
         # continue refresh
-        # if state == 'RUN':
-        instr.write(':RUN')
-
-        return channel_data
-
-    def get_function(self):
-        # when get is called the setpoints have to be known already
-        # (saving data issue). Therefor create additional prepare function that
-        # queries for the size.
-        # check if already prepared
-        if not self._instrument._parent.trace_ready:
-            raise TraceNotReady('Please run prepare_curvedata to prepare '
-                                'the scope for acquiring a trace.')
-
-        # shorthand
-        instr = self._instrument
-
-        # set up the instrument
-        # ---------------------------------------------------------------------
-
-        # TODO: check number of points
-        # check if requested number of points is less than 500 million
-
-        # get intrument state
-        # state = instr.ask(':RSTate?')
-        # realtime mode: only one trigger is used
-        # instr._parent.acquire_mode('RTIMe')
-
-        # acquire the data
-        # ---------------------------------------------------------------------
-
-        # digitize is the actual call for acquisition, blocks
-        instr.write(':DIGitize FUNC{}'.format(self._channel))
-
-        # transfer the data
-        # ---------------------------------------------------------------------
-
-        # select the channel from which to read
-        instr._parent.data_source('FUNC{}'.format(self._channel))
-        # specifiy the data format in which to read
-        instr.write(':WAVeform:FORMat WORD')
-        instr.write(":waveform:byteorder LSBFirst")
-        # instr.write(":WAVeform:UNSigned 0")
-
-        # request the actual transfer
-        data = instr._parent.visa_handle.query_binary_values(
-            'WAV:DATA?', datatype='h', is_big_endian=False)
-        # the Infiniium does not include an extra termination char on binary
-        # messages so we set expect_termination to False
-
-        if len(data) != self.shape[0]:
-            raise TraceSetPointsChanged('{} points have been aquired and {} \
-            set points have been prepared in \
-            prepare_curvedata'.format(len(data), self.shape[0]))
-        # check x data scaling
-        xorigin = float(instr.ask(":WAVeform:XORigin?"))
-        # step size
-        xincrem = float(instr.ask(":WAVeform:XINCrement?"))
-        error = self.xorigin - xorigin
-        # this is a bad workaround
-        if error > xincrem:
-            raise TraceSetPointsChanged('{} is the prepared x origin and {} \
-            is the x origin after the measurement.'.format(self.xorigin,
-                                                        xorigin))
-        error = (self.xincrem - xincrem) / xincrem
-        if error > 1e-6:
-            raise TraceSetPointsChanged('{} is the prepared x increment and {} \
-            is the x increment after the measurement.'.format(self.xincrem,
-                                                            xincrem))
-        # y data scaling
-        yorigin = float(instr.ask(":WAVeform:YORigin?"))
-        yinc = float(instr.ask(":WAVeform:YINCrement?"))
-        channel_data = np.array(data)
-        channel_data = np.multiply(channel_data, yinc) + yorigin
-
-        # restore original state
-        # ---------------------------------------------------------------------
-
-        # switch display back on
-        instr.write(':FUNC{}:DISPlay ON'.format(self._channel))
-        # continue refresh
-        # if state == 'RUN':
         instr.write(':RUN')
 
         return channel_data
