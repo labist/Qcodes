@@ -254,7 +254,7 @@ class RawTrace(ArrayParameter):
         # shorthand
         instr = self._instrument
 
-
+        instr.write(':STOP')
         # acquire the data
         # ---------------------------------------------------------------------
 
@@ -284,7 +284,7 @@ class RawTrace(ArrayParameter):
         # switch display back on
         instr.write(':CHANnel{}:DISPlay ON'.format(self._channel))
         # continue refresh
-        instr.write(':RUN')
+        # instr.write(':RUN')
 
         return channel_data
 
