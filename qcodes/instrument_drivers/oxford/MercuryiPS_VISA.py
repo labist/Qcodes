@@ -559,7 +559,6 @@ class MercuryiPS(VisaInstrument):
         """Convenient method to combine setting target and ramping"""
         self._set_target(coordinate, target)
         self.ramp(mode)
-<<<<<<< HEAD
     
     def _simple_ramp(self, coordinate: str, target: float) -> None:
         '''Ramp coordinate only, don't mess with the others in any way
@@ -587,8 +586,6 @@ class MercuryiPS(VisaInstrument):
         while mod.ramp_status() != 'HOLD':
             time.sleep(1)
 
-=======
->>>>>>> f75e4786e268f415935aa4658d92526279c7a102
 
     def ask(self, cmd: str) -> str:
         """
