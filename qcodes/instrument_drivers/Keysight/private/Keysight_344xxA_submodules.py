@@ -1,8 +1,9 @@
 import textwrap
 from contextlib import ExitStack
 from functools import partial
-from typing import Sequence, Tuple
+from typing import Sequence, Tuple, Any, Optional
 from distutils.version import LooseVersion
+from bisect import bisect_left
 
 import numpy as np
 
@@ -17,7 +18,7 @@ from qcodes.instrument.base import Instrument
 class Trigger(InstrumentChannel):
     """Implements triggering parameters and methods of Keysight 344xxA."""
 
-    def __init__(self, parent: '_Keysight_344xxA', name: str, **kwargs):
+    def __init__(self, parent: '_Keysight_344xxA', name: str, **kwargs: Any):
         super(Trigger, self).__init__(parent, name, **kwargs)
 
         if self.parent.is_34465A_34470A:
@@ -147,7 +148,7 @@ class Trigger(InstrumentChannel):
 class Sample(InstrumentChannel):
     """Implements sampling parameters of Keysight 344xxA."""
 
-    def __init__(self, parent: '_Keysight_344xxA', name: str, **kwargs):
+    def __init__(self, parent: '_Keysight_344xxA', name: str, **kwargs: Any):
         super(Sample, self).__init__(parent, name, **kwargs)
 
         if self.parent.is_34465A_34470A:
@@ -262,7 +263,7 @@ class Sample(InstrumentChannel):
 class Display(InstrumentChannel):
     """Implements interaction with the display of Keysight 344xxA."""
 
-    def __init__(self, parent: '_Keysight_344xxA', name: str, **kwargs):
+    def __init__(self, parent: '_Keysight_344xxA', name: str, **kwargs: Any):
         super(Display, self).__init__(parent, name, **kwargs)
 
         self.add_parameter('enabled',
@@ -310,7 +311,7 @@ class TimeTrace(ParameterWithSetpoints): # pylint: disable=abstract-method
     intervals
     """
 
-    def __init__(self, name: str, instrument: Instrument, **kwargs):
+    def __init__(self, name: str, instrument: Instrument, **kwargs: Any):
 
         self.instrument: Instrument  # needed for mypy
         super().__init__(name=name, instrument=instrument, **kwargs)
@@ -433,7 +434,7 @@ class _Keysight_344xxA(KeysightErrorQueueMixin, VisaInstrument):
     """
 
     def __init__(self, name: str, address: str, silent: bool = False,
-                 **kwargs):
+                 **kwargs: Any):
         """
         Create an instance of the instrument.
 
@@ -874,7 +875,7 @@ class _Keysight_344xxA(KeysightErrorQueueMixin, VisaInstrument):
         if self.is_34465A_34470A:
             self.aperture_mode.get()
 
-    def _set_range(self, value: float):
+    def _set_range(self, value: float) -> None:
         self.write(f'SENSe:VOLTage:DC:RANGe {value:f}')
 
         # resolution settings change with range
@@ -906,6 +907,66 @@ class _Keysight_344xxA(KeysightErrorQueueMixin, VisaInstrument):
         """
         self.write('SENSe:VOLTage:DC:RANGe:AUTO ONCE')
         self.range.get()
+
+    def increase_range(
+        self,
+        range_value: Optional[float] = None,
+        increase_by: int = 1
+    ) -> None:
+        """
+        Increases the voltage range by a certain amount with default of 1.
+        If limit is reached, the max range is used.
+
+        Args:
+            range_value: The desired voltage range needed.  Expressed by power
+                of 10^x range from -3 to 10
+            increase_by: How much to increase range by, default behavior
+                 is by a step of one.
+
+        """
+        if increase_by < 1:
+            raise ValueError("The steps must be increasing in value")
+
+        if range_value is not None:
+            current_range = range_value
+        else:
+            current_range = self.range.get()
+
+        index = bisect_left(self.ranges, current_range)  # binary search
+        if index + increase_by < len(self.ranges):
+            self.range(self.ranges[index + increase_by])
+        else:
+            self.range(self.ranges[-1])
+
+    def decrease_range(
+        self,
+        range_value: Optional[float] = None,
+        decrease_by: int = -1
+    ) -> None:
+        """
+        Decrease the voltage range by a certain amount with default of -1.
+        If limit is reached, the min range is used.
+
+        Args:
+            range_value: The desired voltage range needed.  Expressed by power
+                of 10^x range from -3 to 10
+            decrease_by: How much to decrease range by, default behavior
+                 is by a step of one.
+
+        """
+        if decrease_by > -1:
+            raise ValueError("The steps must be decreasing in value")
+
+        if range_value is not None:
+            current_range = range_value
+        else:
+            current_range = self.range.get()
+
+        index = bisect_left(self.ranges, current_range)  # binary search
+        if index + decrease_by > -1:
+            self.range(self.ranges[index + decrease_by])
+        else:
+            self.range(self.ranges[0])
 
 
 def _raw_vals_to_array(raw_vals: str) -> np.ndarray:

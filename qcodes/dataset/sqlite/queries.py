@@ -1,34 +1,36 @@
 """
 This module contains useful SQL queries and their combinations which are
 specific to the domain of QCoDeS database.
-
-Historically this code was part of sqlite_base.py file.
 """
 import logging
 import sqlite3
 import time
 import unicodedata
 import warnings
-from typing import Dict, List, Optional, Any, Sequence, Union, Tuple, \
-    Callable, cast, Mapping
+from typing import (Any, Callable, Dict, List, Mapping, Optional, Sequence,
+                    Tuple, Union, cast)
 
 import numpy as np
 
 import qcodes as qc
+from qcodes.dataset.descriptions.dependencies import InterDependencies_
+from qcodes.dataset.descriptions.param_spec import ParamSpec, ParamSpecBase
 from qcodes.dataset.descriptions.rundescriber import RunDescriber
-from qcodes.dataset.descriptions.param_spec import ParamSpec
-from qcodes.dataset.descriptions.versioning.converters import old_to_new
-from qcodes.dataset.descriptions.versioning import v0
 from qcodes.dataset.descriptions.versioning import serialization as serial
-from qcodes.dataset.guids import parse_guid, generate_guid
-from qcodes.dataset.sqlite.connection import transaction, ConnectionPlus, \
-    atomic_transaction, atomic
-from qcodes.dataset.sqlite.query_helpers import (
-    sql_placeholder_string, many_many, one, many, select_one_where,
-    select_many_where, insert_values, insert_column, is_column_in_table,
-    VALUES, update_where)
+from qcodes.dataset.descriptions.versioning import v0
+from qcodes.dataset.descriptions.versioning.converters import old_to_new
+from qcodes.dataset.guids import generate_guid, parse_guid
+from qcodes.dataset.sqlite.connection import (ConnectionPlus, atomic,
+                                              atomic_transaction, transaction)
+from qcodes.dataset.sqlite.query_helpers import (VALUES, insert_column,
+                                                 insert_values,
+                                                 is_column_in_table, many,
+                                                 many_many, one,
+                                                 select_many_where,
+                                                 select_one_where,
+                                                 sql_placeholder_string,
+                                                 update_where)
 from qcodes.utils.deprecate import deprecate
-
 
 log = logging.getLogger(__name__)
 
@@ -99,6 +101,8 @@ def _build_data_query(table_name: str,
     return query
 
 
+@deprecate('This method does not accurately represent the dataset.',
+               'Use `get_parameter_data` instead.')
 def get_data(conn: ConnectionPlus,
              table_name: str,
              columns: List[str],
@@ -164,14 +168,7 @@ def get_parameter_data(conn: ConnectionPlus,
         start: start of range; if None, then starts from the top of the table
         end: end of range; if None, then ends at the bottom of the table
     """
-    sql = """
-    SELECT run_id FROM runs WHERE result_table_name = ?
-    """
-    c = atomic_transaction(conn, sql, table_name)
-    run_id = one(c, 'run_id')
-
-    rd = serial.from_json_to_current(get_run_description(conn, run_id))
-    interdeps = rd.interdeps
+    interdeps = get_interdeps_from_result_table_name(conn, table_name)
 
     output = {}
     if len(columns) == 0:
@@ -179,61 +176,93 @@ def get_parameter_data(conn: ConnectionPlus,
 
     # loop over all the requested parameters
     for output_param in columns:
-        output_param_spec = interdeps._id_to_paramspec[output_param]
-        # find all the dependencies of this param
-        paramspecs = [output_param_spec] \
-                   + list(interdeps.dependencies.get(output_param_spec, ()))
-        param_names = [param.name for param in paramspecs]
-        types = [param.type for param in paramspecs]
-
-        res = get_parameter_tree_values(conn,
-                                        table_name,
-                                        output_param,
-                                        *param_names[1:],
-                                        start=start,
-                                        end=end)
-
-        # if we have array type parameters expand all other parameters
-        # to arrays
-        if 'array' in types and ('numeric' in types or 'text' in types
-                                 or 'complex' in types):
-            first_array_element = types.index('array')
-            numeric_elms = [i for i, x in enumerate(types)
-                            if x == "numeric"]
-            complex_elms = [i for i, x in enumerate(types)
-                            if x == 'complex']
-            text_elms = [i for i, x in enumerate(types)
-                         if x == "text"]
-            for row in res:
-                for element in numeric_elms:
-                    row[element] = np.full_like(row[first_array_element],
-                                                row[element],
-                                                dtype=np.float)
-                    # todo should we handle int/float types here
-                    # we would in practice have to perform another
-                    # loop to check that all elements of a given can be cast to
-                    # int without loosing precision before choosing an integer
-                    # representation of the array
-                for element in complex_elms:
-                    row[element] = np.full_like(row[first_array_element],
-                                                row[element],
-                                                dtype=np.complex)
-                for element in text_elms:
-                    strlen = len(row[element])
-                    row[element] = np.full_like(row[first_array_element],
-                                                row[element],
-                                                dtype=f'U{strlen}')
-
-        # Benchmarking shows that transposing the data with python types is
-        # faster than transposing the data using np.array.transpose
-        res_t = map(list, zip(*res))
-        output[output_param] = {name: np.array(column_data)
-                                for name, column_data
-                                in zip(param_names, res_t)}
-
+        one_param_output, _ = get_parameter_data_for_one_paramtree(conn, table_name, interdeps, output_param, start, end)
+        output[output_param] = one_param_output
     return output
 
 
+def get_interdeps_from_result_table_name(conn: ConnectionPlus, result_table_name: str) -> InterDependencies_:
+    sql = """
+    SELECT run_id FROM runs WHERE result_table_name = ?
+    """
+    c = atomic_transaction(conn, sql, result_table_name)
+    run_id = one(c, 'run_id')
+    rd = serial.from_json_to_current(get_run_description(conn, run_id))
+    interdeps = rd.interdeps
+    return interdeps
+
+
+def get_parameter_data_for_one_paramtree(conn: ConnectionPlus, table_name: str, interdeps: InterDependencies_,
+                                         output_param: str, start: Optional[int], end: Optional[int]) -> Tuple[Dict[str, np.ndarray], int]:
+    data, paramspecs, n_rows = _get_data_for_one_param_tree(conn, table_name, interdeps, output_param, start, end)
+    if not paramspecs[0].name == output_param:
+        raise ValueError("output_param should always be the first parameter in a parameter tree. It is not")
+    _expand_data_to_arrays(data, paramspecs)
+    # Benchmarking shows that transposing the data with python types is
+    # faster than transposing the data using np.array.transpose
+    res_t = map(list, zip(*data))
+    param_data = {paramspec.name: np.array(column_data)
+                  for paramspec, column_data
+                  in zip(paramspecs, res_t)}
+    return param_data, n_rows
+
+
+def _expand_data_to_arrays(data: List[List[Any]], paramspecs: Sequence[ParamSpecBase]) -> None:
+    types = [param.type for param in paramspecs]
+    # if we have array type parameters expand all other parameters
+    # to arrays
+    if 'array' in types and ('numeric' in types or 'text' in types
+                             or 'complex' in types):
+        first_array_element = types.index('array')
+        numeric_elms = [i for i, x in enumerate(types)
+                        if x == "numeric"]
+        complex_elms = [i for i, x in enumerate(types)
+                        if x == 'complex']
+        text_elms = [i for i, x in enumerate(types)
+                     if x == "text"]
+        for row in data:
+            for element in numeric_elms:
+                row[element] = np.full_like(row[first_array_element],
+                                            row[element],
+                                            dtype=np.float)
+                # todo should we handle int/float types here
+                # we would in practice have to perform another
+                # loop to check that all elements of a given can be cast to
+                # int without loosing precision before choosing an integer
+                # representation of the array
+            for element in complex_elms:
+                row[element] = np.full_like(row[first_array_element],
+                                            row[element],
+                                            dtype=np.complex)
+            for element in text_elms:
+                strlen = len(row[element])
+                row[element] = np.full_like(row[first_array_element],
+                                            row[element],
+                                            dtype=f'U{strlen}')
+
+
+def _get_data_for_one_param_tree(conn: ConnectionPlus, table_name: str,
+                                 interdeps: InterDependencies_, output_param: str,
+                                 start: Optional[int], end: Optional[int]) \
+        -> Tuple[List[List[Any]], List[ParamSpecBase], int]:
+    output_param_spec = interdeps._id_to_paramspec[output_param]
+    # find all the dependencies of this param
+
+    dependency_params = list(interdeps.dependencies.get(output_param_spec, ()))
+    dependency_names = [param.name for param in dependency_params]
+    paramspecs = [output_param_spec] + dependency_params
+    res = get_parameter_tree_values(conn,
+                                    table_name,
+                                    output_param,
+                                    *dependency_names,
+                                    start=start,
+                                    end=end)
+    n_rows = len(res)
+    return res, paramspecs, n_rows
+
+
+@deprecate('This method does not accurately represent the dataset.',
+               'Use `get_parameter_data` instead.')
 def get_values(conn: ConnectionPlus,
                table_name: str,
                param_name: str) -> List[List[Any]]:
@@ -289,8 +318,8 @@ def get_parameter_tree_values(conn: ConnectionPlus,
         index is parameter value (first toplevel_param, then other_param_names)
     """
 
-    offset = (start - 1) if start is not None else 0
-    limit = (end - offset) if end is not None else -1
+    offset = max((start - 1), 0) if start is not None else 0
+    limit = max((end - offset), 0) if end is not None else -1
 
     if start is not None and end is not None and start > end:
         limit = 0
@@ -322,6 +351,7 @@ def get_parameter_tree_values(conn: ConnectionPlus,
     return res
 
 
+@deprecate(alternative="get_parameter_data")
 def get_setpoints(conn: ConnectionPlus,
                   table_name: str,
                   param_name: str) -> Dict[str, List[List[Any]]]:
@@ -521,35 +551,6 @@ def get_guids_from_run_spec(conn: ConnectionPlus,
     return results
 
 
-@deprecate()
-def get_layout(conn: ConnectionPlus,
-               layout_id: int) -> Dict[str, str]:
-    """
-    Get the layout of a single parameter for plotting it
-
-    Args:
-        conn: The database connection
-        layout_id: The run_id as in the layouts table
-
-    Returns:
-        A dict with name, label, and unit
-    """
-    sql = """
-    SELECT parameter, label, unit FROM layouts WHERE layout_id=?
-    """
-    c = atomic_transaction(conn, sql, layout_id)
-    t_res = many(c, 'parameter', 'label', 'unit')
-    res = dict(zip(['name', 'label', 'unit'], t_res))
-    return res
-
-
-@deprecate()
-def get_layout_id(conn: ConnectionPlus,
-                  parameter: Union[ParamSpec, str],
-                  run_id: int) -> int:
-    return _get_layout_id(conn, parameter, run_id)
-
-
 def _get_layout_id(conn: ConnectionPlus,
                    parameter: Union[ParamSpec, str],
                    run_id: int) -> int:
@@ -582,12 +583,6 @@ def _get_layout_id(conn: ConnectionPlus,
     return res
 
 
-@deprecate()
-def get_dependents(conn: ConnectionPlus,
-                   run_id: int) -> List[int]:
-    return _get_dependents(conn, run_id)
-
-
 def _get_dependents(conn: ConnectionPlus,
                     run_id: int) -> List[int]:
     """
@@ -601,12 +596,6 @@ def _get_dependents(conn: ConnectionPlus,
     c = atomic_transaction(conn, sql, run_id)
     res = [d[0] for d in many_many(c, 'layout_id')]
     return res
-
-
-@deprecate()
-def get_dependencies(conn: ConnectionPlus,
-                     layout_id: int) -> List[List[int]]:
-    return _get_dependencies(conn, layout_id)
 
 
 def _get_dependencies(conn: ConnectionPlus,
@@ -627,65 +616,7 @@ def _get_dependencies(conn: ConnectionPlus,
     return res
 
 
-@deprecate(alternative='DataSet.dependent_parameters')
-def get_non_dependencies(conn: ConnectionPlus,
-                         run_id: int) -> List[str]:
-    """
-    Return all parameters for a given run that are not dependencies of
-    other parameters, i.e. return the top level parameters of the given
-    run
-
-    Args:
-        conn: connection to the database
-        run_id: The run_id of the run in question
-
-    Returns:
-        A list of the parameter names.
-    """
-    parameters = get_parameters(conn, run_id)
-    maybe_independent = []
-    dependent = []
-    dependencies: List[str] = []
-
-    for param in parameters:
-        if len(param.depends_on) == 0:
-            maybe_independent.append(param.name)
-        else:
-            dependent.append(param.name)
-            dependencies.extend(param.depends_on.split(', '))
-
-    independent_set = set(maybe_independent) - set(dependencies)
-    dependent_set = set(dependent)
-    result = independent_set.union(dependent_set)
-    return sorted(list(result))
-
-
 # Higher level Wrappers
-
-@deprecate()
-def get_parameter_dependencies(conn: ConnectionPlus, param: str,
-                               run_id: int) -> List[ParamSpec]:
-    """
-    Given a parameter name return a list of ParamSpecs where the first
-    element is the ParamSpec of the given parameter and the rest of the
-    elements are ParamSpecs of its dependencies.
-
-    Args:
-        conn: connection to the database
-        param: the name of the parameter to look up
-        run_id: run_id: The run_id of the run in question
-
-    Returns:
-        List of ParameterSpecs of the parameter followed by its dependencies.
-    """
-    layout_id = get_layout_id(conn, param, run_id)
-    deps = get_dependencies(conn, layout_id)
-    parameters = [get_paramspec(conn, run_id, param)]
-
-    for dep in deps:
-        depinfo = get_layout(conn, dep[0])
-        parameters.append(get_paramspec(conn, run_id, depinfo['name']))
-    return parameters
 
 
 def new_experiment(conn: ConnectionPlus,
@@ -735,7 +666,6 @@ def mark_run_complete(conn: ConnectionPlus, run_id: int) -> None:
     Args:
         conn: database connection
         run_id: id of the run to mark complete
-        complete: wether the run is completed or not
     """
     query = """
     UPDATE
@@ -749,7 +679,7 @@ def mark_run_complete(conn: ConnectionPlus, run_id: int) -> None:
 
 
 def completed(conn: ConnectionPlus, run_id: int) -> bool:
-    """ Check if the run scomplete
+    """ Check if the run is complete
 
     Args:
         conn: database connection
@@ -921,6 +851,8 @@ def get_runs(conn: ConnectionPlus,
 
     Args:
         conn: database connection
+        exp_id: id of the experiment to look inside.
+            If None all experiments will be included
 
     Returns:
         list of rows
@@ -941,24 +873,33 @@ def get_runs(conn: ConnectionPlus,
     return c.fetchall()
 
 
-def get_last_run(conn: ConnectionPlus, exp_id: int) -> Optional[int]:
+def get_last_run(conn: ConnectionPlus,
+                 exp_id: Optional[int] = None) -> Optional[int]:
     """
     Get run_id of the last run in experiment with exp_id
 
     Args:
         conn: connection to use for the query
-        exp_id: id of the experiment to look inside
+        exp_id: id of the experiment to look inside.
+            If None all experiments will be included
 
     Returns:
         the integer id of the last run or None if there are not runs in the
         experiment
     """
-    query = """
-    SELECT run_id, max(run_timestamp), exp_id
-    FROM runs
-    WHERE exp_id = ?;
-    """
-    c = atomic_transaction(conn, query, exp_id)
+    if exp_id is not None:
+        query = """
+            SELECT run_id, max(run_timestamp), exp_id
+            FROM runs
+            WHERE exp_id = ?;
+            """
+        c = atomic_transaction(conn, query, exp_id)
+    else:
+        query = """
+            SELECT run_id, max(run_timestamp)
+            FROM runs
+            """
+        c = atomic_transaction(conn, query)
     return one(c, 'run_id')
 
 
@@ -1144,12 +1085,6 @@ def _update_experiment_run_counter(conn: ConnectionPlus, exp_id: int,
     atomic_transaction(conn, query, run_counter, exp_id)
 
 
-@deprecate()
-def get_parameters(conn: ConnectionPlus,
-                   run_id: int) -> List[ParamSpec]:
-    return _get_parameters(conn, run_id)
-
-
 def _get_parameters(conn: ConnectionPlus,
                     run_id: int) -> List[ParamSpec]:
     """
@@ -1177,13 +1112,6 @@ def _get_parameters(conn: ConnectionPlus,
         parspecs.append(_get_paramspec(conn, run_id, param_name))
 
     return parspecs
-
-
-@deprecate()
-def get_paramspec(conn: ConnectionPlus,
-                  run_id: int,
-                  param_name: str) -> ParamSpec:
-    return _get_paramspec(conn, run_id, param_name)
 
 
 def _get_paramspec(conn: ConnectionPlus,
@@ -1263,7 +1191,7 @@ def update_run_description(conn: ConnectionPlus, run_id: int,
         serial.from_json_to_current(description)
     except Exception as e:
         raise ValueError("Invalid description string. Must be a JSON string "
-                         "representaion of a RunDescriber object.") from e
+                         "representation of a RunDescriber object.") from e
 
     _update_run_description(conn, run_id, description)
 
@@ -1554,7 +1482,7 @@ def get_parent_dataset_links(conn: ConnectionPlus, run_id: int) -> str:
     if not is_column_in_table(conn, 'runs', 'parent_datasets'):
         maybe_link_str = None
     else:
-        maybe_link_str =  select_one_where(conn, "runs", "parent_datasets",
+        maybe_link_str = select_one_where(conn, "runs", "parent_datasets",
                                            "run_id", run_id)
 
     if maybe_link_str is None:
@@ -1691,7 +1619,7 @@ def update_GUIDs(conn: ConnectionPlus) -> None:
 
     log.info('Commencing update of all GUIDs in database')
 
-    cfg = qc.Config()
+    cfg = qc.config
 
     location = cfg['GUID_components']['location']
     work_station = cfg['GUID_components']['work_station']
@@ -1766,6 +1694,6 @@ def remove_trigger(conn: ConnectionPlus, trigger_id: str) -> None:
 
     Args:
         conn: database connection object
-        name: id of the trigger
+        trigger_id: id of the trigger
     """
     transaction(conn, f"DROP TRIGGER IF EXISTS {trigger_id};")

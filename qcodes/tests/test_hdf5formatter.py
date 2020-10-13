@@ -149,10 +149,11 @@ class TestHDF5_Format(TestCase):
         self.assertTrue(metadata_equal, msg='\n'+err_msg)
         self.formatter.close_file(data1)
         self.formatter.close_file(data2)
+        MockPar.close()
 
     def test_partial_dataset(self):
         data = qcodes.data.data_set.new_data(formatter=self.formatter)
-        data_array = qcodes.data.data_array.DataArray(array_id = 'test_partial_dataset', shape = (10,))
+        data_array = qcodes.data.data_array.DataArray(array_id='test_partial_dataset', shape=(10,))
         data_array.init_data()
         data_array.ndarray[0] = 1
         data.add_array(data_array)
@@ -179,6 +180,7 @@ class TestHDF5_Format(TestCase):
         self.assertTrue(metadata_equal, msg='\n'+err_msg)
         self.formatter.close_file(data1)
         self.formatter.close_file(data2)
+        MockPar.close()
 
     def test_closed_file(self):
         data = DataSet1D(location=self.loc_provider, name='test_closed')
@@ -222,7 +224,7 @@ class TestHDF5_Format(TestCase):
         fp3 = fp[:-5]+'_3.hdf5'
         copy(fp, fp3)
         # Should not raise an error because the file was properly closed
-        F3 = h5py.File(fp3)
+        F3 = h5py.File(fp3, mode='a')
 
     def test_dataset_flush_after_write(self):
         data = DataSet1D(name='test_flush', location=self.loc_provider)
@@ -231,7 +233,7 @@ class TestHDF5_Format(TestCase):
         fp2 = fp[:-5]+'_2.hdf5'
         copy(fp, fp2)
         # Opening this copy should not raise an error
-        F2 = h5py.File(fp2)
+        F2 = h5py.File(fp2, mode='a')
 
     def test_dataset_finalize_closes_file(self):
         data = DataSet1D(name='test_finalize', location=self.loc_provider)
@@ -245,7 +247,7 @@ class TestHDF5_Format(TestCase):
         fp3 = fp[:-5]+'_4.hdf5'
         copy(fp, fp3)
         # Should now not raise an error because the file was properly closed
-        F3 = h5py.File(fp3)
+        F3 = h5py.File(fp3, mode='a')
 
     def test_double_closing_gives_warning(self):
         data = DataSet1D(name='test_double_close',
