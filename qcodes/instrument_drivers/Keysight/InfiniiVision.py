@@ -45,6 +45,7 @@ class Traces(ParameterWithSetpoints):
         return data
 
 class FunctionTrace(ArrayParameter):
+
     """
     raw_trace will return a trace from OSCIL
     """
@@ -63,61 +64,79 @@ class FunctionTrace(ArrayParameter):
         self._channel = channel
         self._instrument = instrument
 
-    def prepare_curvedata(self):
-        """
-        Prepare the scope for returning curve data
-        """
-        # To calculate set points, we must have the full preamble
-        # For the instrument to return the full preamble, the channel
-        # in question must be displayed
-
-        # shorthand
+    @property
+    def npts(self):
+        ''' get the npts
+        '''
         instr = self._instrument
-        # number of set points
-        self.npts = int(instr.ask("WAV:POIN?"))
-        # first set point
-        self.xorigin = float(instr.ask(":WAVeform:XORigin?"))
-        # step size
-        self.xincrem = float(instr.ask(":WAVeform:XINCrement?"))
-        # calculate set points
-        xdata = np.linspace(self.xorigin,
-                            self.npts * self.xincrem + self.xorigin, self.npts)
+        npts = int(instr.ask("WAV:POIN?"))
+        return npts
+    
+    @property
+    # def shape(self):
+    #     ''' get the shape
+    #     '''
+    #     return tuple((self.npts, ))
+    def shape(self) -> Sequence[int]:  # type: ignore[override]
+        if self._instrument is None:
+            return (0,)
+        return (self.npts,)
+    @shape.setter
+    def shape(self, val: Sequence[int]) -> None:
+        pass
 
-        # set setpoints
-        self.setpoints = (tuple(xdata), )
-        self.shape = (self.npts, )
+    @property
+    def xorigin(self):
+        ''' x origin of oscilloscope
+        '''
+        instr = self._instrument
+        return float(instr.ask(":WAVeform:XORigin?"))
 
-        # make this on a per channel basis?
-        self._instrument._parent.trace_ready = True
+    @property
+    def xincrem(self):
+        ''' xcrement of the oscilloscope
+        '''
+        instr = self._instrument
+        return float(instr.ask(":WAVeform:XINCrement?"))
+
+    @property
+    def setpoints(self) -> Sequence:
+        '''Calculate setpoints from scope settings
+        '''
+        if self._instrument is None:
+            raise RuntimeError("Cannot return setpoints if not attached "
+                               "to instrument")
+
+        return (np.linspace(self.xorigin,
+                            self.npts * self.xincrem + self.xorigin, self.npts),)
+    @setpoints.setter
+    def setpoints(self, val: Sequence[int]) -> None:
+        pass
+    
+    @property
+    def yinc(self):
+        ''' ycrement of the oscilloscope
+        '''
+        instr = self._instrument
+        return float(instr.ask(":WAVeform:YINCrement?"))
+
+    @property
+    def yorigin(self):
+        ''' x origin of oscilloscope
+        '''
+        instr = self._instrument
+        return float(instr.ask(":WAVeform:YORigin?"))
 
     def get_raw(self):
-        # when get is called the setpoints have to be known already
-        # (saving data issue). Therefor create additional prepare function that
-        # queries for the size.
-        # check if already prepared
-        if not self._instrument._parent.trace_ready:
-            raise TraceNotReady('Please run prepare_curvedata to prepare '
-                                'the scope for acquiring a trace.')
 
         # shorthand
         instr = self._instrument
 
-        # set up the instrument
-        # ---------------------------------------------------------------------
-
-        # TODO: check number of points
-        # check if requested number of points is less than 500 million
-
-        # get intrument state
-        # state = instr.ask(':RSTate?')
-        # realtime mode: only one trigger is used
-        # instr._parent.acquire_mode('RTIMe')
-
+        instr.write(':STOP')
         # acquire the data
         # ---------------------------------------------------------------------
-
         # digitize is the actual call for acquisition, blocks
-        instr.write(':DIGitize FUNC{}'.format(self._channel))
+        instr.write(':DIGitize CHANnel{}'.format(self._channel))
 
         # transfer the data
         # ---------------------------------------------------------------------
@@ -127,43 +146,23 @@ class FunctionTrace(ArrayParameter):
         # specifiy the data format in which to read
         instr.write(':WAVeform:FORMat WORD')
         instr.write(":waveform:byteorder LSBFirst")
-        instr.write(":WAVeform:UNSigned 0")
-        instr.write(':WAVeform:POINts:MODE NORMal')
-
+        # instr.write(":WAVeform:UNSigned 1")
 
         # request the actual transfer
         data = instr._parent.visa_handle.query_binary_values(
-            'WAV:DATA?', datatype='h', is_big_endian=False)
+            'WAV:DATA?', datatype='H', is_big_endian=False)
         # the Infiniium does not include an extra termination char on binary
         # messages so we set expect_termination to False
-
-        if len(data) != self.shape[0]:
-            raise TraceSetPointsChanged('{} points have been aquired and {} \
-            set points have been prepared in \
-            prepare_curvedata'.format(len(data), self.shape[0]))
-        # check x data scaling
-        Pre = instr.ask(':WAVeform:PREamble?').split(',')
-        xinc = float(Pre[4])
-        xorigin = float(Pre[5])
-        xref = float(Pre[6])
-        yinc = float(Pre[7])
-        yoriging = float(Pre[8])
-        yref = float(Pre[9])
-        # y data scaling
-        yorigin = float(instr.ask(":WAVeform:YORigin?"))
-        yinc = float(instr.ask(":WAVeform:YINCrement?"))
-
         channel_data = np.array(data)
-        channel_data = np.multiply(np.subtract(channel_data, yref), yinc) + yorigin
+        channel_data = np.multiply(channel_data, self.yinc) + self.yorigin
 
         # restore original state
         # ---------------------------------------------------------------------
 
         # switch display back on
-        instr.write(':FUNC{}:DISPlay ON'.format(self._channel))
+        instr.write(':CHANnel{}:DISPlay ON'.format(self._channel))
         # continue refresh
-        # if state == 'RUN':
-        instr.write(':RUN')
+        # instr.write(':RUN')
 
         return channel_data
 
@@ -561,20 +560,20 @@ class Infiniium(VisaInstrument):
                            get_parser=float,
                            )
 
-        self.add_parameter('timebase_roll_enabled',
-                           label='Is rolling mode enabled',
-                           get_cmd=':TIMebase:ROLL:ENABLE?',
-                           set_cmd=':TIMebase:ROLL:ENABLE {}',
-                           val_mapping={True: 1, False: 0}
-                           )
+        # self.add_parameter('timebase_roll_enabled',
+        #                    label='Is rolling mode enabled',
+        #                    get_cmd=':TIMebase:ROLL:ENABLE?',
+        #                    set_cmd=':TIMebase:ROLL:ENABLE {}',
+        #                    val_mapping={True: 1, False: 0}
+        #                    )
 
         # trigger
-        self.add_parameter('trigger_enabled',
-                           label='Is trigger enabled',
-                           get_cmd=':TRIGger:AND:ENABLe?',
-                           set_cmd=':TRIGger:AND:ENABLe {}',
-                           val_mapping={True: 1, False: 0}
-                           )
+        # self.add_parameter('trigger_enabled',
+        #                    label='Is trigger enabled',
+        #                    get_cmd=':TRIGger:AND:ENABLe?',
+        #                    set_cmd=':TRIGger:AND:ENABLe {}',
+        #                    val_mapping={True: 1, False: 0}
+        #                    )
 
         self.add_parameter('trigger_edge_source',
                            label='Source channel for the edge trigger',
@@ -593,14 +592,14 @@ class Infiniium(VisaInstrument):
                            set_cmd=':TRIGger:EDGE:SLOPe {}',
                            vals=Enum('positive', 'negative', 'neither')
                            )
-        self.add_parameter('trigger_level_aux',
-                           label='Tirgger level AUX',
-                           unit='V',
-                           get_cmd=':TRIGger:LEVel? AUX',
-                           set_cmd=':TRIGger:LEVel AUX,{}',
-                           get_parser=float,
-                           vals=Numbers(),
-                           )
+        # self.add_parameter('trigger_level_aux',
+        #                    label='Tirgger level AUX',
+        #                    unit='V',
+        #                    get_cmd=':TRIGger:LEVel? AUX',
+        #                    set_cmd=':TRIGger:LEVel AUX,{}',
+        #                    get_parser=float,
+        #                    vals=Numbers(),
+        #                    )
         # Aquisition
         # If sample points, rate and timebase_scale are set in an
         # incomensurate way, the scope only displays part of the waveform
@@ -644,11 +643,11 @@ class Infiniium(VisaInstrument):
 
         # TODO: implement as array parameter to allow for setting the other filter
         # ratios
-        self.add_parameter('acquire_interpolate',
-                            get_cmd=':ACQuire:INTerpolate?',
-                            set_cmd=self._cmd_and_invalidate(':ACQuire:INTerpolate {}'),
-                            val_mapping={True: 1, False: 0}
-                            )
+        # self.add_parameter('acquire_interpolate',
+        #                     get_cmd=':ACQuire:INTerpolate?',
+        #                     set_cmd=self._cmd_and_invalidate(':ACQuire:INTerpolate {}'),
+        #                     val_mapping={True: 1, False: 0}
+        #                     )
 
         self.add_parameter('acquire_mode',
                             label='Acquisition mode',
@@ -673,14 +672,14 @@ class Infiniium(VisaInstrument):
                             get_parser=float
                             )
 
-        self.add_parameter('data_format',
-                           set_cmd='SAV:WAV:FORM {}',
-                           val_mapping={'csv': 'CSV',
-                                        'binary': 'BIN',
-                                        'asciixy': 'ASC'},
-                           docstring=("Set the format for saving "
-                                      "files using save_data function")
-                           )
+        # self.add_parameter('data_format',
+        #                    set_cmd='SAV:WAV:FORM {}',
+        #                    val_mapping={'csv': 'CSV',
+        #                                 'binary': 'BIN',
+        #                                 'asciixy': 'ASC'},
+        #                    docstring=("Set the format for saving "
+        #                               "files using save_data function")
+        #                    )
         # Acquisition
         self.add_parameter('traces',
                             unit='V',
