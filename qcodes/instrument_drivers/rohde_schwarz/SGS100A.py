@@ -31,21 +31,21 @@ class RohdeSchwarz_SGS100A(VisaInstrument):
         super().__init__(name, address, terminator='\n', **kwargs)
 
         self.add_parameter(name='frequency',
-                           label='Frequency',
+                           label='$f_{\mathrm{SG}}$',
                            unit='Hz',
                            get_cmd='SOUR:FREQ?',
                            set_cmd='SOUR:FREQ {:.2f}',
                            get_parser=float,
                            vals=vals.Numbers(1e6, 20e9))
         self.add_parameter(name='phase',
-                           label='Phase',
+                           label='$\phi_{\mathrm{SG}}$',
                            unit='deg',
                            get_cmd='SOUR:PHAS?',
                            set_cmd='SOUR:PHAS {:.2f}',
                            get_parser=float,
                            vals=vals.Numbers(0, 360))
         self.add_parameter(name='power',
-                           label='Power',
+                           label='$P_{\mathrm{SG}}$',
                            unit='dBm',
                            get_cmd='SOUR:POW?',
                            set_cmd='SOUR:POW {:.2f}',
