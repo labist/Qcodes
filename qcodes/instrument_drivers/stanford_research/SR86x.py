@@ -37,7 +37,6 @@ class SR86xBufferReadout(ArrayParameter):
                          docstring='Holds an acquired (part of the) data '
                                    'buffer of one channel.')
 
-        self.name = name
         self._capture_data: Optional[np.ndarray] = None
 
     def prepare_readout(self, capture_data: np.ndarray) -> None:
@@ -157,7 +156,7 @@ class SR86xBuffer(InstrumentChannel):
                 parameter_class=SR86xBufferReadout
             )
 
-    def snapshot_base(self, update: bool = False,
+    def snapshot_base(self, update: Optional[bool] = False,
                       params_to_skip_update: Optional[Sequence[str]] = None
                       ) -> Dict:
         if params_to_skip_update is None:

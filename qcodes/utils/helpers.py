@@ -6,6 +6,7 @@ import numbers
 import time
 import os
 from pathlib import Path
+import collections
 
 from collections.abc import Iterator, Sequence, Mapping
 from copy import deepcopy
@@ -80,6 +81,11 @@ class NumpyJSONEncoder(json.JSONEncoder):
             try:
                 s = super(NumpyJSONEncoder, self).default(obj)
             except TypeError:
+                # json does not support dumping UserDict but
+                # we can dump the dict stored internally in the
+                # UserDict
+                if isinstance(obj, collections.UserDict):
+                    return obj.data
                 # See if the object supports the pickle protocol.
                 # If so, we should be able to use that to serialize.
                 if hasattr(obj, '__getnewargs__'):
@@ -326,63 +332,6 @@ def wait_secs(finish_clock):
     return delay
 
 
-class LogCapture():
-
-    """
-    Context manager to grab all log messages, optionally
-    from a specific logger.
-
-    usage::
-
-        with LogCapture() as logs:
-            code_that_makes_logs(...)
-        log_str = logs.value
-
-    """
-
-    @deprecate(reason="The logging infrastructure has moved to `qcodes.utils.logger`",
-               alternative="`qcodes.utils.logger.LogCapture`")
-    def __init__(self, logger=logging.getLogger()):
-        self.logger = logger
-
-        self.stashed_handlers = self.logger.handlers[:]
-        for handler in self.stashed_handlers:
-            self.logger.removeHandler(handler)
-
-    def __enter__(self):
-        self.log_capture = io.StringIO()
-        self.string_handler = logging.StreamHandler(self.log_capture)
-        self.string_handler.setLevel(logging.DEBUG)
-        self.logger.addHandler(self.string_handler)
-        return self
-
-    def __exit__(self, type, value, tb):
-        self.logger.removeHandler(self.string_handler)
-        self.value = self.log_capture.getvalue()
-        self.log_capture.close()
-
-        for handler in self.stashed_handlers:
-            self.logger.addHandler(handler)
-
-
-@deprecate(
-    reason="This method is no longer being used in QCoDeS.")
-def make_unique(s, existing):
-    """
-    Make string ``s`` unique, able to be added to a sequence ``existing`` of
-    existing names without duplication, by ``appending _<int>`` to it if needed.
-    """
-    n = 1
-    s_out = s
-    existing = set(existing)
-
-    while s_out in existing:
-        n += 1
-        s_out = '{}_{}'.format(s, n)
-
-    return s_out
-
-
 class DelegateAttributes:
     """
     Mixin class to create attributes of this object by
@@ -391,27 +340,28 @@ class DelegateAttributes:
     Also fixes ``__dir__`` so the delegated attributes will show up
     in ``dir()`` and ``autocomplete``.
 
-
-    Attributes:
-        delegate_attr_dicts (list): A list of names (strings) of dictionaries
-            which are (or will be) attributes of ``self``, whose keys should
-            be treated as attributes of ``self``.
-        delegate_attr_objects (list): A list of names (strings) of objects
-            which are (or will be) attributes of ``self``, whose attributes
-            should be passed through to ``self``.
-        omit_delegate_attrs (list): A list of attribute names (strings)
-            to *not* delegate to any other dictionary or object.
-
-    Any ``None`` entry is ignored.
-
     Attribute resolution order:
         1. Real attributes of this object.
         2. Keys of each dictionary in ``delegate_attr_dicts`` (in order).
         3. Attributes of each object in ``delegate_attr_objects`` (in order).
     """
     delegate_attr_dicts: List[str] = []
+    """
+    A list of names (strings) of dictionaries
+    which are (or will be) attributes of ``self``, whose keys should
+    be treated as attributes of ``self``.
+    """
     delegate_attr_objects: List[str] = []
+    """
+    A list of names (strings) of objects
+    which are (or will be) attributes of ``self``, whose attributes
+    should be passed through to ``self``.
+    """
     omit_delegate_attrs: List[str] = []
+    """
+    A list of attribute names (strings)
+    to *not* delegate to any other dictionary or object.
+    """
 
     def __getattr__(self, key):
         if key in self.omit_delegate_attrs:
@@ -619,7 +569,7 @@ def add_to_spyder_UMR_excludelist(modulename: str):
             except ImportError:
                 pass
             else:
-                print("found kernels site")
+                logging.info("found spyder kernels site")
                 sitecustomize_found = True
 
         if sitecustomize_found is False:

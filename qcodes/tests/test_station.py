@@ -1,11 +1,12 @@
 import pytest
 from contextlib import contextmanager
 import tempfile
-import json
 import warnings
 from pathlib import Path
 import os
 from typing import Optional
+import json
+from io import StringIO
 
 import qcodes
 import qcodes.utils.validators as validators
@@ -19,14 +20,17 @@ from qcodes.instrument.parameter import Parameter
 from qcodes.monitor.monitor import Monitor
 from qcodes.tests.instrument_mocks import (
     DummyInstrument)
-from qcodes.tests.test_combined_par import DumyPar
-from qcodes.tests.test_config import default_config
+from qcodes.tests.common import default_config
+from qcodes.utils.helpers import NumpyJSONEncoder
+from qcodes.utils.helpers import YAML
+from .common import DumyPar
 
 
 @pytest.fixture(autouse=True)
 def use_default_config():
     with default_config():
         yield
+
 
 @pytest.fixture(autouse=True)
 def set_default_station_to_none():
@@ -164,7 +168,7 @@ def test_snapshot():
     assert {'instruments': {},
             'parameters': {},
             'components': {},
-            'default_measurement': []
+            'config': None,
             } == empty_snapshot
 
     instrument = DummyInstrument('instrument', gates=['one'])
@@ -186,7 +190,7 @@ def test_snapshot():
     assert ['instruments',
             'parameters',
             'components',
-            'default_measurement'
+            'config',
             ] == list(snapshot.keys())
 
     assert ['instrument'] == list(snapshot['instruments'].keys())
@@ -197,8 +201,6 @@ def test_snapshot():
 
     assert ['component'] == list(snapshot['components'].keys())
     assert component_snapshot == snapshot['components']['component']
-
-    assert [] == snapshot['default_measurement']
 
 
 def test_station_after_instrument_is_closed():
@@ -229,7 +231,7 @@ def test_station_after_instrument_is_closed():
     assert {'instruments': {},
             'parameters': {},
             'components': {},
-            'default_measurement': []
+            'config': None,
             } == snapshot
 
     # check that 'bob' has been removed from the station
@@ -247,7 +249,6 @@ def test_update_config_schema():
     with open(SCHEMA_PATH) as f:
         schema = json.load(f)
     assert len(schema['definitions']['instruments']['enum']) > 1
-
 
 
 @contextmanager
@@ -308,7 +309,7 @@ def station_from_config_str(config: str) -> Station:
 
 
 def station_config_has_been_loaded(st: Station) -> bool:
-    return "config" in st.components.keys()
+    return st.config is not None
 
 
 @pytest.fixture
@@ -377,6 +378,25 @@ def test_station_configuration_is_a_component_of_station(example_station):
     assert station_config_has_been_loaded(example_station)
 
 
+def test_station_config_can_be_loaded_from_snapshot(example_station):
+    assert station_config_has_been_loaded(example_station)
+    # ensure that we can correctly dump config which is a subclass of UserDict
+    configdump = json.dumps(example_station.config, cls=NumpyJSONEncoder)
+    # as this is now a regular dict we can load it back
+    loaded_config = json.loads(configdump)
+    # now lets ensure that we can recreate the
+    # station from the loaded config
+    # first we need to get a yaml repr of the data
+    yaml = YAML()
+    with StringIO() as output:
+        yaml.dump(loaded_config, output)
+        yaml_repr = output.getvalue()
+    # which we can then reload into the station
+    new_station = Station(default=False)
+    new_station.load_config(yaml_repr)
+    assert example_station.config == new_station.config
+
+
 @pytest.fixture
 def simple_mock_station():
     yield station_from_config_str(
@@ -386,12 +406,12 @@ instruments:
     type: qcodes.tests.instrument_mocks.DummyInstrument
         """)
 
+
 def test_simple_mock_config(simple_mock_station):
     st = simple_mock_station
     assert station_config_has_been_loaded(st)
     assert hasattr(st, 'load_mock')
-    mock_snapshot = st.snapshot()['components']['config']\
-        ['instruments']['mock']
+    mock_snapshot = st.snapshot()['config']['instruments']['mock']
     assert (mock_snapshot['type'] ==
             "qcodes.tests.instrument_mocks.DummyInstrument")
     assert 'mock' in st.config['instruments']
@@ -502,7 +522,6 @@ instruments:
     assert "TestGate" in mock.parameters.keys()
     assert len(mock.parameters) == 2  # there is also IDN
 
-
     # test address
     sims_path = get_qcodes_path('instrument', 'sims')
     st = station_from_config_str(f"""
@@ -523,6 +542,42 @@ def test_name_init_kwarg(simple_mock_station):
     mock = st.load_instrument('mock', name='test')
     assert mock.name == 'test'
     assert st.components['test'] is mock
+
+
+def test_name_specified_in_init_in_yaml_is_used():
+    st = station_from_config_str(
+        """
+instruments:
+  mock:
+    type: qcodes.tests.instrument_mocks.DummyInstrument
+    init:
+      name: dummy
+        """)
+
+    mock = st.load_instrument('mock')
+    assert isinstance(mock, DummyInstrument)
+    assert mock.name == 'dummy'
+    assert st.components['dummy'] is mock
+
+
+class InstrumentWithNameAsNotFirstArgument(Instrument):
+    def __init__(self, first_arg, name):
+        super(InstrumentWithNameAsNotFirstArgument, self).__init__(name)
+        self._first_arg = first_arg
+
+
+def test_able_to_load_instrument_with_name_argument_not_being_the_first():
+    st = station_from_config_str(
+        """
+instruments:
+  name_goes_second:
+    type: qcodes.tests.test_station.InstrumentWithNameAsNotFirstArgument
+        """)
+
+    instr = st.load_instrument('name_goes_second', first_arg=42)
+    assert isinstance(instr, InstrumentWithNameAsNotFirstArgument)
+    assert instr.name == 'name_goes_second'
+    assert st.components['name_goes_second'] is instr
 
 
 def test_setup_alias_parameters():
@@ -560,6 +615,7 @@ instruments:
     assert mock.ch1() == 3
     assert p.raw_value == 7
     assert mock.ch1.raw_value == 7
+
 
 def test_setup_delegate_parameters():
     st = station_from_config_str("""
@@ -692,6 +748,7 @@ instruments:
                         ' to it')):
         st.load_instrument('mock')
 
+
 def test_deprecated_limits_keyword_as_string():
     st = station_from_config_str("""
 instruments:
@@ -733,6 +790,7 @@ invalid_keyword:
     """
         with config_file_context(test_config) as filename:
             Station(config_file=filename)
+
 
 def test_config_validation_comprehensive_config():
     Station(config_file=os.path.join(

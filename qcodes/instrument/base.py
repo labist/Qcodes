@@ -30,20 +30,6 @@ class InstrumentBase(Metadatable, DelegateAttributes):
             attaching it to a Station.
         metadata: additional static metadata to add to this
             instrument's JSON snapshot.
-
-
-    Attributes:
-        name (str): An identifier for this instrument, particularly for
-            attaching it to a Station.
-
-        parameters (Dict[Parameter]): All the parameters supported by this
-            instrument. Usually populated via ``add_parameter``.
-
-        functions (Dict[Function]): All the functions supported by this
-            instrument. Usually populated via ``add_function``.
-        submodules (Dict[Metadatable]): All the submodules of this instrument
-            such as channel lists or logical groupings of parameters.
-            Usually populated via ``add_submodule``.
     """
     def __init__(self, name: str,
                  metadata: Optional[Dict] = None) -> None:
@@ -51,9 +37,23 @@ class InstrumentBase(Metadatable, DelegateAttributes):
         self._short_name = str(name)
 
         self.parameters: Dict[str, _BaseParameter] = {}
+        """
+        All the parameters supported by this instrument.
+        Usually populated via :py:meth:`add_parameter`.
+        """
         self.functions: Dict[str, Function] = {}
+        """
+        All the functions supported by this
+        instrument. Usually populated via :py:meth:`add_function`.
+        """
         self.submodules: Dict[str, Union['InstrumentBase',
                                          'ChannelList']] = {}
+        """
+        All the submodules of this instrument
+        such as channel lists or logical groupings of parameters.
+        Usually populated via :py:meth:`add_submodule`.
+        """
+
         super().__init__(metadata)
 
         # This is needed for snapshot method to work
@@ -163,7 +163,7 @@ class InstrumentBase(Metadatable, DelegateAttributes):
             raise TypeError('Submodules must be metadatable.')
         self.submodules[name] = submodule
 
-    def snapshot_base(self, update: bool = False,
+    def snapshot_base(self, update: Optional[bool] = False,
                       params_to_skip_update: Optional[Sequence[str]] = None
                       ) -> Dict:
         """
@@ -174,7 +174,9 @@ class InstrumentBase(Metadatable, DelegateAttributes):
 
         Args:
             update: If ``True``, update the state by querying the
-                instrument. If ``False``, just use the latest values in memory.
+                instrument. If None update the state if known to be invalid.
+                If ``False``, just use the latest values in memory and never
+                update state.
             params_to_skip_update: List of parameter names that will be skipped
                 in update even if update is True. This is useful if you have
                 parameters that are slow to update but can be updated in a
@@ -202,7 +204,7 @@ class InstrumentBase(Metadatable, DelegateAttributes):
             if param.snapshot_exclude:
                 continue
             if params_to_skip_update and name in params_to_skip_update:
-                update_par = False
+                update_par: Optional[bool] = False
             else:
                 update_par = update
 
@@ -366,11 +368,8 @@ class InstrumentBase(Metadatable, DelegateAttributes):
     def __getstate__(self) -> None:
         """Prevent pickling instruments, and give a nice error message."""
         raise RuntimeError(
-            'Pickling {}. qcodes Instruments should not.'.format(self.name) +
-            ' be pickled. Likely this means you '
-            'were trying to use a local instrument (defined with '
-            'server_name=None) in a background Loop. Local instruments can '
-            'only be used in Loops with background=False.')
+            f'Error when pickling instrument {self.name}. '
+            f'QCoDeS instruments can not be pickled.')
 
     def validate_status(self, verbose: bool = False) -> None:
         """ Validate the values of all gettable parameters
@@ -384,7 +383,7 @@ class InstrumentBase(Metadatable, DelegateAttributes):
 
         """
         for k, p in self.parameters.items():
-            if hasattr(p, 'get') and hasattr(p, 'set'):
+            if p.gettable and p.settable:
                 value = p.get()
                 if verbose:
                     print('validate_status: param %s: %s' % (k, value))
@@ -411,20 +410,6 @@ class Instrument(InstrumentBase, AbstractInstrument):
         metadata: additional static metadata to add to this
             instrument's JSON snapshot.
 
-
-    Attributes:
-        name (str): an identifier for this instrument, particularly for
-            attaching it to a Station.
-
-        parameters (Dict[Parameter]): All the parameters supported by this
-            instrument. Usually populated via ``add_parameter``
-
-        functions (Dict[Function]): All the functions supported by this
-            instrument. Usually populated via ``add_function``
-
-        submodules (Dict[Metadatable]): All the submodules of this instrument
-            such as channel lists or logical groupings of parameters.
-            Usually populated via ``add_submodule``
     """
 
     shared_kwargs = ()
@@ -517,11 +502,8 @@ class Instrument(InstrumentBase, AbstractInstrument):
     def __del__(self) -> None:
         """Close the instrument and remove its instance record."""
         try:
-            wr = weakref.ref(self)
-            if wr in getattr(self, '_instances', []):
-                self._instances.remove(wr)
             self.close()
-        except:
+        except BaseException:
             pass
 
     def close(self) -> None:

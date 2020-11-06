@@ -61,10 +61,10 @@ class Keithley_2400(VisaInstrument):
                                         "output off")
 
 
-        self.add_parameter('mode',
+        self.add_parameter('source',
                            vals=Enum('VOLT', 'CURR'),
                            get_cmd=':SOUR:FUNC?',
-                           set_cmd=self._set_mode_and_sense,
+                           set_cmd=':SOUR:FUNC {:s}',
                            label='Mode')
 
         self.add_parameter('sense',
