@@ -23,12 +23,12 @@ class PNASweep(ArrayParameter):
             # Pass the label = "Time" and unit = "s"
             super().__init__(name,
                             instrument=instrument,
-                            label=label,
-                            unit=unit,
+                            shape=(0,),
+                            setpoints=((0,),),
                             setpoint_names=('time',),
                             setpoint_labels=('Time',),
-                            setpoint_units=('s',)
-                            )
+                            setpoint_units=('s',),
+                            **kwargs)
         else:
             # Pass the kwargs from cls FormattedSweep()
             super().__init__(name,
