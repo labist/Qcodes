@@ -16,7 +16,8 @@ class PNASweep(ArrayParameter):
                  name: str,
                  instrument: 'PNABase',
                  **kwargs: Any) -> None:
-
+        # put unit logic in here
+        # pass label/units on to ArrayParameter
         super().__init__(name,
                          instrument=instrument,
                          shape=(0,),
@@ -37,9 +38,19 @@ class PNASweep(ArrayParameter):
         if self._instrument is None:
             raise RuntimeError("Cannot return setpoints if not attached "
                                "to instrument")
-        start = self._instrument.root_instrument.start()
-        stop = self._instrument.root_instrument.stop()
+
+        vna = self._instrument.root_instrument
+        # If span != 0
+        if vna.span() == 0 : # 0 span mode
+            start = 0
+            stop = vna.sweep_time()
+        else :
+            start = vna.start()
+            stop = vna.stop()
+
         return (np.linspace(start, stop, self.shape[0]),)
+        # If span == 0, get the time that trace took
+
     @setpoints.setter
     def setpoints(self, val: Sequence[int]) -> None:
         pass
