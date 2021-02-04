@@ -16,13 +16,26 @@ class PNASweep(ArrayParameter):
                  name: str,
                  instrument: 'PNABase',
                  **kwargs: Any) -> None:
-        # put unit logic in here
-        # pass label/units on to ArrayParameter
-        super().__init__(name,
-                         instrument=instrument,
-                         shape=(0,),
-                         setpoints=((0,),),
-                         **kwargs)
+        # unit logic in here
+        # pass label/units on to ArrayParameter based on vna.span()
+        _vna = instrument.root_instrument
+        if _vna.span() == 0:
+            # Pass the label = "Time" and unit = "s"
+            super().__init__(name,
+                            instrument=instrument,
+                            label=label,
+                            unit=unit,
+                            setpoint_names=('time',),
+                            setpoint_labels=('Time',),
+                            setpoint_units=('s',)
+                            )
+        else:
+            # Pass the kwargs from cls FormattedSweep()
+            super().__init__(name,
+                            instrument=instrument,
+                            shape=(0,),
+                            setpoints=((0,),),
+                            **kwargs)
 
     @property  # type: ignore[override]
     def shape(self) -> Sequence[int]:  # type: ignore[override]
