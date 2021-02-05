@@ -18,18 +18,30 @@ class PNASweep(ArrayParameter):
                  **kwargs: Any) -> None:
         # unit logic in here
         # pass label/units on to ArrayParameter based on vna.span()
-        _vna = instrument.root_instrument
-        if _vna.span() == 0:
-            # Update the label = "Time" and unit = "s" in kwargs
-            kwargs.update( setpoint_names=('time',) )
-            kwargs.update( setpoint_labels=('Time',) )
-            kwargs.update( setpoint_units=('s',) )
-            
+        # choose setpoints units depending on if we're in zero span mode
+        setpoint_info = self._get_setpoint_info( instrument.root_instrument.span() )
+
         super().__init__(name,
                         instrument=instrument,
                         shape=(0,),
                         setpoints=((0,),),
+                        **setpoint_info,
                         **kwargs)
+
+    def _get_setpoint_info( self, span ) :
+        ''' Automatically determine setpoint information depending on if we're in zero span.
+        Returns a dictionary with setpoint_names, setpoint_labels, setpoint_units which can
+        then be passed on to super().__init__
+        '''
+        if span == 0 :
+            setpoint_info = { 'setpoint_names' : ('time',),
+                'setpoint_labels' : ('Time',),
+                'setpoint_units' : ('s',) }
+        else :
+            setpoint_info = { 'setpoint_names' : ('frequency',),
+                'setpoint_labels' : ('Frequency',),
+                'setpoint_units' : ('s',) }
+        return setpoint_info
 
     @property  # type: ignore[override]
     def shape(self) -> Sequence[int]:  # type: ignore[override]
@@ -77,10 +89,7 @@ class FormattedSweep(PNASweep):
         super().__init__(name,
                          instrument=instrument,
                          label=label,
-                         unit=unit,
-                         setpoint_names=('frequency',),
-                         setpoint_labels=('Frequency',),
-                         setpoint_units=('Hz',)
+                         unit=unit
                          )
         self.sweep_format = sweep_format
         self.memory = memory
