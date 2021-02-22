@@ -16,12 +16,32 @@ class PNASweep(ArrayParameter):
                  name: str,
                  instrument: 'PNABase',
                  **kwargs: Any) -> None:
+        # unit logic in here
+        # pass label/units on to ArrayParameter based on vna.span()
+        # choose setpoints units depending on if we're in zero span mode
+        setpoint_info = self._get_setpoint_info( instrument.root_instrument.span() )
 
         super().__init__(name,
-                         instrument=instrument,
-                         shape=(0,),
-                         setpoints=((0,),),
-                         **kwargs)
+                        instrument=instrument,
+                        shape=(0,),
+                        setpoints=((0,),),
+                        **setpoint_info,
+                        **kwargs)
+
+    def _get_setpoint_info( self, span ) :
+        ''' Automatically determine setpoint information depending on if we're in zero span.
+        Returns a dictionary with setpoint_names, setpoint_labels, setpoint_units which can
+        then be passed on to super().__init__
+        '''
+        if span == 0 :
+            setpoint_info = { 'setpoint_names' : ('time',),
+                'setpoint_labels' : ('Time',),
+                'setpoint_units' : ('s',) }
+        else :
+            setpoint_info = { 'setpoint_names' : ('frequency',),
+                'setpoint_labels' : ('Frequency',),
+                'setpoint_units' : ('s',) }
+        return setpoint_info
 
     @property  # type: ignore[override]
     def shape(self) -> Sequence[int]:  # type: ignore[override]
@@ -37,9 +57,19 @@ class PNASweep(ArrayParameter):
         if self._instrument is None:
             raise RuntimeError("Cannot return setpoints if not attached "
                                "to instrument")
-        start = self._instrument.root_instrument.start()
-        stop = self._instrument.root_instrument.stop()
+
+        vna = self._instrument.root_instrument
+        # If span != 0
+        if vna.span() == 0 : # 0 span mode
+            start = 0
+            stop = vna.sweep_time()
+        else :
+            start = vna.start()
+            stop = vna.stop()
+
         return (np.linspace(start, stop, self.shape[0]),)
+        # If span == 0, get the time that trace took
+
     @setpoints.setter
     def setpoints(self, val: Sequence[int]) -> None:
         pass
@@ -59,10 +89,7 @@ class FormattedSweep(PNASweep):
         super().__init__(name,
                          instrument=instrument,
                          label=label,
-                         unit=unit,
-                         setpoint_names=('frequency',),
-                         setpoint_labels=('Frequency',),
-                         setpoint_units=('Hz',)
+                         unit=unit
                          )
         self.sweep_format = sweep_format
         self.memory = memory
