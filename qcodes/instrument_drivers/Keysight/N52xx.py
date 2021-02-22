@@ -206,7 +206,7 @@ class PNATrace(InstrumentChannel):
             root_instr.group_trigger_count(avg)
             root_instr.sweep_mode('GRO')
         else:
-            root_instr.sweep_mode('SING')
+           root_instr.sweep_mode('SING')
 
         # Once the sweep mode is in hold, we know we're done
         try:
@@ -225,7 +225,8 @@ class PNATrace(InstrumentChannel):
                 msg += "The trigger source is external. Is the trigger " \
                        "source functional?"
             logger.warning(msg)
-
+        #### me
+        #root_instr.sweep_mode("CONT")
         # Return previous mode, incase we want to restore this
         return prev_mode
 
@@ -329,6 +330,14 @@ class PNABase(VisaInstrument):
                            set_cmd='SENS:AVER:COUN {:d}',
                            unit='',
                            vals=Numbers(min_value=1, max_value=65536))
+        # RF OUT -> Turns the VNA ON/OFF
+
+        self.add_parameter('rf_out',
+                           label='RF Out',
+                           get_cmd="OUTP:STAT?",
+                           set_cmd="OUTP:STAT {}",
+                           val_mapping={True: '1', False: '0'})
+
 
         # Setting frequency range
         self.add_parameter('start',
@@ -361,7 +370,7 @@ class PNABase(VisaInstrument):
                            get_parser=float,
                            set_cmd='SENS:FREQ:SPAN {}',
                            unit='Hz',
-                           vals=Numbers(min_value=min_freq,
+                           vals=Numbers(min_value=0,
                                         max_value=max_freq))
 
         # Number of points in a sweep
