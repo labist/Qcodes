@@ -19,13 +19,126 @@ class TraceNotReady(Exception):
 class TraceSetPointsChanged(Exception):
     pass
 
-class FunctionTrace(ArrayParameter):
+# class FunctionTrace(ArrayParameter):
 
+#     """
+#     raw_trace will return a trace from OSCIL
+#     source: CHAN or 
+#     """
+
+#     def __init__(self, name, instrument, channel, source='CHAN'):
+#         super().__init__(name,
+#                          shape=(1024,),
+#                          label='Voltage',
+#                          unit='V',
+#                          setpoint_names=('Time',),
+#                          setpoint_labels=(
+#                              'Channel {} time series'.format(channel),),
+#                          setpoint_units=('s',),
+#                          docstring='raw trace from the scope',
+#                          )
+#         self._channel = channel
+#         self._instrument = instrument
+
+#     @property
+#     def npts(self):
+#         ''' get the npts
+#         '''
+#         instr = self._instrument
+#         npts = int(instr.ask("WAV:POIN?"))
+#         return npts
+    
+#     @property
+#     # def shape(self):
+#     #     ''' get the shape
+#     #     '''
+#     #     return tuple((self.npts, ))
+#     def shape(self) -> Sequence[int]:  # type: ignore[override]
+#         if self._instrument is None:
+#             return (0,)
+#         return (self.npts,)
+#     @shape.setter
+#     def shape(self, val: Sequence[int]) -> None:
+#         pass
+
+#     @property
+#     def xorigin(self):
+#         ''' x origin of oscilloscope
+#         '''
+#         instr = self._instrument
+#         return float(instr.ask(":WAVeform:XORigin?"))
+
+#     @property
+#     def xincrem(self):
+#         ''' xcrement of the oscilloscope
+#         '''
+#         instr = self._instrument
+#         return float(instr.ask(":WAVeform:XINCrement?"))
+
+#     @property
+#     def setpoints(self) -> Sequence:
+#         '''Calculate setpoints from scope settings
+#         '''
+#         if self._instrument is None:
+#             raise RuntimeError("Cannot return setpoints if not attached "
+#                                "to instrument")
+
+#         return (np.linspace(self.xorigin,
+#                             self.npts * self.xincrem + self.xorigin, self.npts),)
+#     @setpoints.setter
+#     def setpoints(self, val: Sequence[int]) -> None:
+#         pass
+    
+#     @property
+#     def yinc(self):
+#         ''' ycrement of the oscilloscope
+#         '''
+#         instr = self._instrument
+#         return float(instr.ask(":WAVeform:YINCrement?"))
+
+#     @property
+#     def yorigin(self):
+#         ''' x origin of oscilloscope
+#         '''
+#         instr = self._instrument
+#         return float(instr.ask(":WAVeform:YORigin?"))
+
+#     def get_raw(self):
+
+#         # shorthand
+#         instr = self._instrument
+
+#         instr.write(':STOP')
+#         # acquire the data
+#         # ---------------------------------------------------------------------
+#         # digitize is the actual call for acquisition, blocks
+#         instr.write(':DIGitize CHANnel{}'.format(self._channel))
+
+#         # transfer the data
+#         # ---------------------------------------------------------------------
+
+
+        
+#         channel_data = self.get_wave_data()
+
+#         # restore original state
+#         # ---------------------------------------------------------------------
+
+#         # switch display back on
+#         instr.write(':CHANnel{}:DISPlay ON'.format(self._channel))
+#         # continue refresh
+#         # instr.write(':RUN')
+
+#         return channel_data
+
+class RawTrace(ArrayParameter):
     """
     raw_trace will return a trace from OSCIL
+    channel: specify channel/function number
+    source: CHAN or FUNC, selects whether this is a channel trace or function trace
     """
 
-    def __init__(self, name, instrument, channel):
+    def __init__(self, name, instrument, channel, source='CHAN'):
         super().__init__(name,
                          shape=(1024,),
                          label='Voltage',
@@ -38,6 +151,7 @@ class FunctionTrace(ArrayParameter):
                          )
         self._channel = channel
         self._instrument = instrument
+        self._source = source
 
     @property
     def npts(self):
@@ -102,22 +216,14 @@ class FunctionTrace(ArrayParameter):
         instr = self._instrument
         return float(instr.ask(":WAVeform:YORigin?"))
 
-    def get_raw(self):
-
-        # shorthand
+    def get_wave_data( self ) :
+        ''' get wave data as binary and parse it
+        gets whichever data is selected with data_source
+        '''
         instr = self._instrument
+        # select the source
+        instr._parent.data_source(f'{self._source}{self._channel}')
 
-        instr.write(':STOP')
-        # acquire the data
-        # ---------------------------------------------------------------------
-        # digitize is the actual call for acquisition, blocks
-        instr.write(':DIGitize CHANnel{}'.format(self._channel))
-
-        # transfer the data
-        # ---------------------------------------------------------------------
-
-        # select the channel from which to read
-        instr._parent.data_source('FUNC{}'.format(self._channel))
         # specifiy the data format in which to read
         instr.write(':WAVeform:FORMat WORD')
         instr.write(":waveform:byteorder LSBFirst")
@@ -125,141 +231,28 @@ class FunctionTrace(ArrayParameter):
 
         # request the actual transfer
         data = instr._parent.visa_handle.query_binary_values(
-            'WAV:DATA?', datatype='H', is_big_endian=False)
+            'WAV:DATA?', datatype='h', is_big_endian=False)
         # the Infiniium does not include an extra termination char on binary
         # messages so we set expect_termination to False
         channel_data = np.array(data)
-        channel_data = np.multiply(channel_data, self.yinc) + self.yorigin
-
-        # restore original state
-        # ---------------------------------------------------------------------
-
-        # switch display back on
-        instr.write(':CHANnel{}:DISPlay ON'.format(self._channel))
-        # continue refresh
-        # instr.write(':RUN')
-
-        return channel_data
-
-class RawTrace(ArrayParameter):
-    """
-    raw_trace will return a trace from OSCIL
-    """
-
-    def __init__(self, name, instrument, channel):
-        super().__init__(name,
-                         shape=(1024,),
-                         label='Voltage',
-                         unit='V',
-                         setpoint_names=('Time',),
-                         setpoint_labels=(
-                             'Channel {} time series'.format(channel),),
-                         setpoint_units=('s',),
-                         docstring='raw trace from the scope',
-                         )
-        self._channel = channel
-        self._instrument = instrument
-
-    @property
-    def npts(self):
-        ''' get the npts
-        '''
-        instr = self._instrument
-        npts = int(instr.ask("WAV:POIN?"))
-        return npts
-    
-    @property
-    # def shape(self):
-    #     ''' get the shape
-    #     '''
-    #     return tuple((self.npts, ))
-    def shape(self) -> Sequence[int]:  # type: ignore[override]
-        if self._instrument is None:
-            return (0,)
-        return (self.npts,)
-    @shape.setter
-    def shape(self, val: Sequence[int]) -> None:
-        pass
-
-    @property
-    def xorigin(self):
-        ''' x origin of oscilloscope
-        '''
-        instr = self._instrument
-        return float(instr.ask(":WAVeform:XORigin?"))
-
-    @property
-    def xincrem(self):
-        ''' xcrement of the oscilloscope
-        '''
-        instr = self._instrument
-        return float(instr.ask(":WAVeform:XINCrement?"))
-
-    @property
-    def setpoints(self) -> Sequence:
-        '''Calculate setpoints from scope settings
-        '''
-        if self._instrument is None:
-            raise RuntimeError("Cannot return setpoints if not attached "
-                               "to instrument")
-
-        return (np.linspace(self.xorigin,
-                            self.npts * self.xincrem + self.xorigin, self.npts),)
-    @setpoints.setter
-    def setpoints(self, val: Sequence[int]) -> None:
-        pass
-    
-    @property
-    def yinc(self):
-        ''' ycrement of the oscilloscope
-        '''
-        instr = self._instrument
-        return float(instr.ask(":WAVeform:YINCrement?"))
-
-    @property
-    def yorigin(self):
-        ''' x origin of oscilloscope
-        '''
-        instr = self._instrument
-        return float(instr.ask(":WAVeform:YORigin?"))
+        return np.multiply(channel_data, self.yinc) + self.yorigin
 
     def get_raw(self):
 
         # shorthand
         instr = self._instrument
 
-        instr.write(':STOP')
-        # acquire the data
-        # ---------------------------------------------------------------------
-
-        # digitize is the actual call for acquisition, blocks
-        instr.write(':DIGitize CHANnel{}'.format(self._channel))
+        if instr._parent.autorun() : # trigger and digitize in autorun mode
+            instr.write(':SINGle')
+            instr.write(':DIGitize CHANnel{}'.format(self._channel))
 
         # transfer the data
-        # ---------------------------------------------------------------------
+        channel_data = self.get_wave_data()
 
-        # select the channel from which to read
-        instr._parent.data_source('CHAN{}'.format(self._channel))
-        # specifiy the data format in which to read
-        instr.write(':WAVeform:FORMat WORD')
-        instr.write(':WAVeform:UNSigned OFF')
-        instr.write(":waveform:byteorder LSBFirst")
-
-        # request the actual transfer
-        data = instr._parent.visa_handle.query_binary_values(
-            'WAV:DATA?', datatype='h', is_big_endian=False)
-        # the Infiniium does not include an extra termination char on binary
-        # messages so we set expect_termination to False
-        channel_data = np.array(data)
-        channel_data = np.multiply(channel_data, self.yinc) + self.yorigin
-
-        # restore original state
-        # ---------------------------------------------------------------------
-
-        # switch display back on
-        instr.write(':CHANnel{}:DISPlay ON'.format(self._channel))
+        # return to autorun if desired
+        # instr.write(':CHANnel{}:DISPlay ON'.format(self._channel))
         # continue refresh if desired
-        if instr.autorun() : instr.run()
+        if instr._parent.autorun() : instr.run()
 
         return channel_data
 
@@ -463,7 +456,8 @@ class InfiniiumChannel(InstrumentChannel):
 
         self.add_parameter(name='function',
                     channel=channel,
-                    parameter_class=FunctionTrace
+                    source='FUNC',
+                    parameter_class=RawTrace,
                     )
 
 class Infiniium(VisaInstrument):
