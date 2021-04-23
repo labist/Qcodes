@@ -5,7 +5,7 @@ import logging
 from traceback import format_exc
 
 from qcodes import IPInstrument
-from qcodes.utils.validators import Enum, Ints
+from qcodes.utils.validators import Enum, Ints, Numbers
 
 from time import sleep
 
@@ -141,6 +141,24 @@ class Triton(IPInstrument):
                            label='Magnet sweep time',
                            unit='T/min',
                            get_cmd=partial(self._get_control_B_param, 'RVST:TIME'))
+
+        self.add_parameter(name='mc_heater_pwr',
+                           label='Mixing chamber heater power',
+                           unit='W',
+                           get_cmd='READ:DEV:H1:HTR:SIG:POWR',
+                           set_cmd='SET:DEV:H1:HTR:SIG:POWR:{}',
+                           get_parser=self._parse_htr,
+                           set_parser=float,
+                           vals=Numbers(0, 300000))
+
+        self.add_parameter(name='still_heater_pwr',
+                           label='Still heater power',
+                           unit='W',
+                           get_cmd='READ:DEV:H2:HTR:SIG:POWR',
+                           set_cmd='SET:DEV:H2:HTR:SIG:POWR:{}',
+                           get_parser=self._parse_htr,
+                           set_parser=float,
+                           vals=Numbers(0, 300000))
 
         self.chan_alias = {}
         self.chan_temp_names = {}
@@ -384,6 +402,11 @@ class Triton(IPInstrument):
         if 'NOT_FOUND' in msg:
             return None
         return float(msg.split('SIG:PRES:')[-1].strip('mB')) * 1e3
+
+    def _parse_htr(self, msg):
+        if 'NOT_FOUND' in msg:
+            return None
+        return float(msg.split('SIG:POWR:')[-1].strip('uW'))/1e6
 
     def _recv(self):
         return super()._recv().rstrip()
