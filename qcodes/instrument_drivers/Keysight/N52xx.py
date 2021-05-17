@@ -40,7 +40,7 @@ class PNASweep(ArrayParameter):
         else :
             setpoint_info = { 'setpoint_names' : ('frequency',),
                 'setpoint_labels' : ('Frequency',),
-                'setpoint_units' : ('s',) }
+                'setpoint_units' : ('Hz',) }
         return setpoint_info
 
     @property  # type: ignore[override]
