@@ -585,16 +585,16 @@ class MercuryiPS(VisaInstrument):
         start_field = mod.field()
         eta = np.abs( target - start_field ) / mod.field_ramp_rate()
         start_time = time.time()
-        print( f'ETA is {eta} s' )
+        # print( f'ETA is {eta} s' )
         while mod.ramp_status() == 'TO SET':
             time.sleep(0.5)
             elapsed_time = time.time() - start_time
             
             if np.abs(target - mod.field()) <= 1e-4:
                 break #break loop if target is reached
-            
+
             if elapsed_time > 2 * eta : # HACK: reset supply, we're stuck
-                print( 'problem detected, resetting' )
+                # print( 'problem detected, resetting' )
                 mod.ramp_status('HOLD')
                 time.sleep(0.5)
                 mod.ramp_status('TO SET')
