@@ -578,13 +578,27 @@ class MercuryiPS(VisaInstrument):
     def _simple_blk(self, coordinate: str, target: float) -> None:
         '''Ramp coordinate only. Block until completed
         '''
-        mod = self.submodules[f"GRP{coordinate.upper()}"]
-        mod.ramp_status('HOLD')
-        time.sleep(0.2)
+        
         self._simple_ramp(coordinate, target)
-        time.sleep(1)
-        while mod.ramp_status() != 'HOLD':
-            time.sleep(1)
+        mod = self.submodules[f"GRP{coordinate.upper()}"]
+
+        start_field = mod.field()
+        eta = np.abs( target - start_field ) / mod.field_ramp_rate()
+        start_time = time.time()
+        print( f'ETA is {eta} s' )
+        while mod.ramp_status() == 'TO SET':
+            time.sleep(0.5)
+            elapsed_time = time.time() - start_time
+            
+            if np.abs(target - mod.field()) <= 1e-4:
+                break #break loop if target is reached
+            
+            if elapsed_time > 2 * eta : # HACK: reset supply, we're stuck
+                print( 'problem detected, resetting' )
+                mod.ramp_status('HOLD')
+                time.sleep(0.5)
+                mod.ramp_status('TO SET')
+                start_time = time.time()
 
 
     def ask(self, cmd: str) -> str:
