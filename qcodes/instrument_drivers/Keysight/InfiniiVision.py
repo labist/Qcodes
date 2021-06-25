@@ -1,3 +1,4 @@
+from io import StringIO
 import logging
 from typing import Dict, Callable, List, Optional, Sequence
 from functools import partial
@@ -252,7 +253,7 @@ class RawTrace(ArrayParameter):
         # return to autorun if desired
         # instr.write(':CHANnel{}:DISPlay ON'.format(self._channel))
         # continue refresh if desired
-        if instr._parent.autorun() : instr.run()
+        if instr._parent.autorun() : instr._parent.run()
 
         return channel_data
 
@@ -460,6 +461,31 @@ class InfiniiumChannel(InstrumentChannel):
                     parameter_class=RawTrace,
                     )
 
+
+        self.add_parameter('coupling',
+                            label=f'Ch{channel} coupling',
+                            unit='',
+                            get_cmd=f':CHANnel{channel}:COUPling?',
+                            set_cmd=f':CHANnel{channel}:COUPling {{}}',
+                            vals=Enum('AC', 'DC'),
+                            )
+
+        self.add_parameter('vavg_cycle',
+                            label=f'Ch{channel} voltage average',
+                            unit='V',
+                            get_cmd=f':MEASure:VAVerage? CYCLe,CHANnel{channel}',
+                            get_parser = float,
+                            vals=Numbers(),
+                            )
+
+        self.add_parameter('time_period',
+                            label=f'Ch{channel} time period',
+                            unit='s',
+                            get_cmd=f':MEASure:PERiod? CHANnel{channel}',
+                            get_parser = float,
+                            vals=Numbers(),
+                            )   
+
 class Infiniium(VisaInstrument):
     """
     This is the QCoDeS driver for the Keysight Infiniium oscilloscopes from the
@@ -566,7 +592,25 @@ class Infiniium(VisaInstrument):
                            set_cmd=':TRIGger:EDGE:SLOPe {}',
                            vals=Enum('positive', 'negative', 'neither')
                            )
-        # self.add_parameter('trigger_level_aux',
+
+        self.add_parameter('trigger_edge_level',
+                            label='Trigger edge level',
+                            unit='V',
+                            get_cmd=':TRIGger:EDGE:LEVel?',
+                            set_cmd=':TRIGger:EDGE:LEVel {}',
+                            get_parser=float,
+                            vals=Numbers(),
+                            )
+        
+        self.add_parameter('trigger_edge_coupling',
+                            label='Trigger edge coupling',
+                            unit='',
+                            get_cmd=':TRIGger:EDGE:COUPling?',
+                            set_cmd=':TRIGger:EDGE:COUPling {}',
+                            vals=Enum('AC', 'DC', 'LFReject'),
+                            )                        
+
+        #self.add_parameter('trigger_level_aux',
         #                    label='Tirgger level AUX',
         #                    unit='V',
         #                    get_cmd=':TRIGger:LEVel? AUX',
