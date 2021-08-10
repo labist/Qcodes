@@ -513,7 +513,7 @@ class Infiniium(VisaInstrument):
         # switch the response header off,
         # else none of our parameters will work
         self.write(':SYSTem:HEADer OFF')
-
+        self.write(':WAVeform:UNSigned 0') # signed data
         # functions
 
         # general parameters
@@ -535,7 +535,7 @@ class Infiniium(VisaInstrument):
         #                    get_parser=float,
         #
         #                     )
-        self._autorun = False
+        self._autorun = True
         self.add_parameter( 'autorun',
                             label='Run after acquiring a trace?',
                             unit='',
