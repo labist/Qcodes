@@ -441,7 +441,7 @@ class InfiniiumChannel(InstrumentChannel):
         # trigger
         self.add_parameter(
             'trigger_level',
-            label='Tirgger level channel {}'.format(channel),
+            label='Trigger level channel {}'.format(channel),
             unit='V',
             get_cmd=':TRIGger:LEVel? CHANnel{}'.format(channel),
             set_cmd=':TRIGger:LEVel CHANnel{},{{}}'.format(channel),
