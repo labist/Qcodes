@@ -1,13 +1,14 @@
-from typing import Union
+from typing import Any
+
 import numpy as np
 
-from qcodes import VisaInstrument
-from qcodes import InstrumentChannel
-from qcodes import Instrument
-from qcodes import ChannelList
-from qcodes import ParameterWithSetpoints
-from qcodes.utils.validators import Numbers, Enum
-from qcodes.utils.validators import Arrays
+from qcodes import (
+    ChannelList,
+    InstrumentChannel,
+    ParameterWithSetpoints,
+    VisaInstrument,
+)
+from qcodes.utils.validators import Arrays, Enum, Numbers
 
 
 class RigolDS1074ZChannel(InstrumentChannel):
@@ -20,15 +21,15 @@ class RigolDS1074ZChannel(InstrumentChannel):
     """
 
     def __init__(self,
-                 parent: Union[Instrument, 'InstrumentChannel'],
+                 parent: "DS1074Z",
                  name: str,
-                 channel
+                 channel: int
                  ):
         super().__init__(parent, name)
         self.channel = channel
 
         self.add_parameter("vertical_scale",
-                           get_cmd=":CHANnel{}:SCALe?".format(channel),
+                           get_cmd=f":CHANnel{channel}:SCALe?",
                            set_cmd=":CHANnel{}:SCALe {}".format(channel, "{}"),
                            get_parser=float
                            )
@@ -42,7 +43,7 @@ class RigolDS1074ZChannel(InstrumentChannel):
                            snapshot_value=False
                            )
 
-    def _get_full_trace(self):
+    def _get_full_trace(self) -> np.ndarray:
         y_ori = self.root_instrument.waveform_yorigin()
         y_increm = self.root_instrument.waveform_yincrem()
         y_ref = self.root_instrument.waveform_yref()
@@ -77,7 +78,13 @@ class DS1074Z(VisaInstrument):
         timeout: Seconds to allow for responses.
         terminator: terminator for SCPI commands.
     """
-    def __init__(self, name, address, terminator='\n', timeout=5, **kwargs):
+    def __init__(
+            self,
+            name: str,
+            address: str,
+            terminator: str = '\n',
+            timeout: float = 5,
+            **kwargs: Any):
         super().__init__(name, address, terminator=terminator, timeout=timeout,
                          **kwargs)
 
@@ -184,26 +191,25 @@ class DS1074Z(VisaInstrument):
 
         for channel_number in range(1, 5):
             channel = RigolDS1074ZChannel(self,
-                                          "ch{}".format(channel_number),
+                                          f"ch{channel_number}",
                                           channel_number
                                           )
             channels.append(channel)
 
-        channels.lock()
-        self.add_submodule('channels', channels)
+        self.add_submodule("channels", channels.to_channel_tuple())
 
         self.connect_message()
 
-    def _get_time_axis(self):
+    def _get_time_axis(self) -> np.ndarray:
         xorigin = self.waveform_xorigin()
         xincrem = self.waveform_xincrem()
         npts = self.waveform_npoints()
         xdata = np.linspace(xorigin, npts * xincrem + xorigin, npts)
         return xdata
 
-    def _get_trigger_level(self):
+    def _get_trigger_level(self) -> str:
         trigger_level = self.root_instrument.ask(f":TRIGger:{self.trigger_mode()}:LEVel?")
         return trigger_level
 
-    def _set_trigger_level(self, value):
+    def _set_trigger_level(self, value: str) -> None:
         self.root_instrument.write(f":TRIGger:{self.trigger_mode()}:LEVel {value}")

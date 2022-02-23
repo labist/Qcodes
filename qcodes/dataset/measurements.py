@@ -4,9 +4,8 @@ to measure and storing results. The user is expected to mainly interact with it
 using the :class:`.Measurement` class.
 """
 
-
+import collections
 import io
-import json
 import logging
 import traceback as tb_module
 import warnings
@@ -15,29 +14,69 @@ from inspect import signature
 from numbers import Number
 from time import perf_counter
 from types import TracebackType
-from typing import (Any, Callable, Dict, List, Mapping, MutableMapping,
-                    MutableSequence, Optional, Sequence, Tuple, Type,
-                    TypeVar, Union, cast)
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    List,
+    Mapping,
+    MutableMapping,
+    MutableSequence,
+    Optional,
+    Sequence,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+    cast,
+)
 
 import numpy as np
 
 import qcodes as qc
 import qcodes.utils.validators as vals
-from qcodes import Station
-from qcodes.dataset.data_set import VALUE, DataSet, load_by_guid, setpoints_type, res_type, values_type
-from qcodes.dataset.descriptions.dependencies import (DependencyError,
-                                                      InferenceError,
-                                                      InterDependencies_)
+from qcodes.dataset.data_set import VALUE, DataSet, load_by_guid
+from qcodes.dataset.data_set_in_memory import DataSetInMem
+from qcodes.dataset.data_set_protocol import (
+    DataSetProtocol,
+    DataSetType,
+    res_type,
+    setpoints_type,
+    values_type,
+)
+from qcodes.dataset.descriptions.dependencies import (
+    DependencyError,
+    InferenceError,
+    InterDependencies_,
+)
 from qcodes.dataset.descriptions.param_spec import ParamSpec, ParamSpecBase
+from qcodes.dataset.descriptions.rundescriber import RunDescriber
+from qcodes.dataset.descriptions.versioning.rundescribertypes import Shapes
 from qcodes.dataset.experiment_container import Experiment
-from qcodes.dataset.linked_datasets.links import Link
-from qcodes.instrument.parameter import (ArrayParameter, MultiParameter,
-                                         Parameter, ParameterWithSetpoints,
-                                         _BaseParameter)
+from qcodes.dataset.export_config import get_data_export_automatic
+from qcodes.instrument.delegate.grouped_parameter import GroupedParameter
+from qcodes.instrument.parameter import (
+    ArrayParameter,
+    MultiParameter,
+    Parameter,
+    ParameterWithSetpoints,
+    _BaseParameter,
+    expand_setpoints_helper,
+)
+from qcodes.station import Station
 from qcodes.utils.delaykeyboardinterrupt import DelayedKeyboardInterrupt
-from qcodes.utils.helpers import NumpyJSONEncoder
+
+if TYPE_CHECKING:
+    from qcodes.dataset.sqlite.connection import ConnectionPlus
 
 log = logging.getLogger(__name__)
+
+
+ActionType = Tuple[Callable[..., Any], Sequence[Any]]
+SubscriberType = Tuple[Callable[..., Any],
+                       Union[MutableSequence[Any],
+                             MutableMapping[Any, Any]]]
 
 
 class ParameterTypeError(Exception):
@@ -50,32 +89,38 @@ class DataSaver:
     datasaving to the database.
     """
 
-    default_callback: Optional[dict] = None
+    default_callback: Optional[Dict[Any, Any]] = None
 
-    def __init__(self, dataset: DataSet,
-                 write_period: float,
-                 interdeps: InterDependencies_) -> None:
+    def __init__(
+        self,
+        dataset: DataSetProtocol,
+        write_period: float,
+        interdeps: InterDependencies_,
+    ) -> None:
         self._dataset = dataset
-        if DataSaver.default_callback is not None \
-                and 'run_tables_subscription_callback' \
-                    in DataSaver.default_callback:
-            callback = DataSaver.default_callback[
-                'run_tables_subscription_callback']
-            min_wait = DataSaver.default_callback[
-                'run_tables_subscription_min_wait']
-            min_count = DataSaver.default_callback[
-                'run_tables_subscription_min_count']
-            snapshot = dataset.get_metadata('snapshot')
-            self._dataset.subscribe(callback,
-                                    min_wait=min_wait,
-                                    min_count=min_count,
-                                    state={},
-                                    callback_kwargs={'run_id':
-                                                     self._dataset.run_id,
-                                                     'snapshot': snapshot})
-        default_subscribers = qc.config.subscription.default_subscribers
-        for subscriber in default_subscribers:
-            self._dataset.subscribe_from_config(subscriber)
+        if (
+            DataSaver.default_callback is not None
+            and "run_tables_subscription_callback" in DataSaver.default_callback
+        ):
+            callback = DataSaver.default_callback["run_tables_subscription_callback"]
+            min_wait = DataSaver.default_callback["run_tables_subscription_min_wait"]
+            min_count = DataSaver.default_callback["run_tables_subscription_min_count"]
+            snapshot = dataset.metadata["snapshot"]
+            if isinstance(self._dataset, DataSet):
+                self._dataset.subscribe(
+                    callback,
+                    min_wait=min_wait,
+                    min_count=min_count,
+                    state={},
+                    callback_kwargs={
+                        "run_id": self._dataset.run_id,
+                        "snapshot": snapshot,
+                    },
+                )
+        if isinstance(self._dataset, DataSet):
+            default_subscribers = qc.config.subscription.default_subscribers
+            for subscriber in default_subscribers:
+                self._dataset.subscribe_from_config(subscriber)
 
         self._interdeps = interdeps
         self.write_period = float(write_period)
@@ -83,7 +128,7 @@ class DataSaver:
         self._results: List[Dict[str, VALUE]] = []
         self._last_save_time = perf_counter()
         self._known_dependencies: Dict[str, List[str]] = {}
-        self.parent_datasets: List[DataSet] = []
+        self.parent_datasets: List[DataSetProtocol] = []
 
         for link in self._dataset.parent_dataset_links:
             self.parent_datasets.append(load_by_guid(link.tail))
@@ -115,6 +160,7 @@ class DataSaver:
             ValueError: If the shapes of parameters do not match, i.e. if a
                 parameter gets values of a different shape than its setpoints
                 (the exception being that setpoints can always be scalar)
+            ValueError: If multiple results are given for the same parameter.
             ParameterTypeError: If a parameter is given a value not matching
                 its type.
         """
@@ -126,17 +172,54 @@ class DataSaver:
         # enforcing that setpoints come before dependent variables.
         results_dict: Dict[ParamSpecBase, np.ndarray] = {}
 
+        parameter_names = tuple(partial_result[0].full_name
+                                if isinstance(partial_result[0], _BaseParameter) else partial_result[0]
+                                for partial_result in res_tuple)
+        if len(set(parameter_names)) != len(parameter_names):
+            non_unique = [
+                item
+                for item, count in collections.Counter(parameter_names).items()
+                if count > 1
+            ]
+            raise ValueError(
+                f"Not all parameter names are unique. "
+                f"Got multiple values for {non_unique}"
+            )
+
         for partial_result in res_tuple:
             parameter = partial_result[0]
+            data = partial_result[1]
+
+            if (isinstance(parameter, _BaseParameter) and
+                    isinstance(parameter.vals, vals.Arrays)):
+                if not isinstance(data, np.ndarray):
+                    raise TypeError(
+                        f"Expected data for Parameter with Array validator "
+                        f"to be a numpy array but got: {type(data)}")
+
+                if (parameter.vals.shape is not None
+                        and data.shape != parameter.vals.shape):
+                    raise TypeError(
+                        f"Expected data with shape {parameter.vals.shape}, "
+                        f"but got {data.shape} for parameter: {parameter.full_name}"
+                    )
+
             if isinstance(parameter, ArrayParameter):
                 results_dict.update(
                     self._unpack_arrayparameter(partial_result))
             elif isinstance(parameter, MultiParameter):
                 results_dict.update(
                     self._unpack_multiparameter(partial_result))
+            elif isinstance(parameter, ParameterWithSetpoints):
+                results_dict.update(
+                    self._conditionally_expand_parameter_with_setpoints(
+                        data, parameter, parameter_names, partial_result
+                    )
+                )
             else:
                 results_dict.update(
-                    self._unpack_partial_result(partial_result))
+                    self._unpack_partial_result(partial_result)
+                )
 
         self._validate_result_deps(results_dict)
         self._validate_result_shapes(results_dict)
@@ -147,6 +230,28 @@ class DataSaver:
         if perf_counter() - self._last_save_time > self.write_period:
             self.flush_data_to_database()
             self._last_save_time = perf_counter()
+
+    def _conditionally_expand_parameter_with_setpoints(
+            self, data: values_type, parameter: ParameterWithSetpoints,
+            parameter_names: Sequence[str], partial_result: res_type
+    ) -> Dict[ParamSpecBase, np.ndarray]:
+        local_results = {}
+        setpoint_names = tuple(setpoint.full_name for setpoint in parameter.setpoints)
+        expanded = tuple(setpoint_name in parameter_names for setpoint_name in setpoint_names)
+        if all(expanded):
+            local_results.update(
+                self._unpack_partial_result(partial_result))
+        elif any(expanded):
+            raise ValueError(f"Some of the setpoints of {parameter.full_name} "
+                             "were explicitly given but others were not. "
+                             "Either supply all of them or none of them.")
+        else:
+            expanded_partial_result = expand_setpoints_helper(parameter, data)
+            for res in expanded_partial_result:
+                local_results.update(
+                    self._unpack_partial_result(res)
+                )
+        return local_results
 
     def _unpack_partial_result(
             self,
@@ -221,7 +326,7 @@ class DataSaver:
             shape = parameter.shapes[i]
 
             try:
-                paramspec = self._interdeps._id_to_paramspec[parameter.names[i]]
+                paramspec = self._interdeps._id_to_paramspec[parameter.full_names[i]]
             except KeyError:
                 raise ValueError('Can not add result for parameter '
                                  f'{parameter.names[i]}, '
@@ -251,12 +356,12 @@ class DataSaver:
         return result_dict
 
     def _unpack_setpoints_from_parameter(
-        self, parameter: _BaseParameter, setpoints: Sequence,
+        self, parameter: _BaseParameter, setpoints: Sequence[Any],
         sp_names: Optional[Sequence[str]], fallback_sp_name: str
             ) -> Dict[ParamSpecBase, np.ndarray]:
         """
         Unpack the `setpoints` and their values from a
-        :class:`ParameterWithSetpoints`
+        :class:`ArrayParameter` or :class:`MultiParameter`
         into a standard results dict form and return that dict
         """
         setpoint_axes = []
@@ -314,10 +419,10 @@ class DataSaver:
         toplevel_params = (set(self._interdeps.dependencies)
                            .intersection(set(results_dict)))
         for toplevel_param in toplevel_params:
-            required_shape = np.shape(results_dict[toplevel_param])
+            required_shape = np.shape(np.array(results_dict[toplevel_param]))
             for setpoint in self._interdeps.dependencies[toplevel_param]:
                 # a setpoint is allowed to be a scalar; shape is then ()
-                setpoint_shape = np.shape(results_dict[setpoint])
+                setpoint_shape = np.shape(np.array(results_dict[setpoint]))
                 if setpoint_shape not in [(), required_shape]:
                     raise ValueError(f'Incompatible shapes. Parameter '
                                      f"{toplevel_param.name} has shape "
@@ -332,7 +437,7 @@ class DataSaver:
         Validate the type of the results
         """
 
-        allowed_kinds = {'numeric': 'iuf', 'text': 'SU', 'array': 'iufc',
+        allowed_kinds = {'numeric': 'iuf', 'text': 'SU', 'array': 'iufcSUmM',
                          'complex': 'c'}
 
         for ps, vals in results_dict.items():
@@ -353,6 +458,12 @@ class DataSaver:
         """
         self.dataset._flush_data_to_database(block=block)
 
+    def export_data(self) -> None:
+        """Export data at end of measurement as per export_type
+        specification in "dataset" section of qcodes config
+        """
+        self.dataset.export()
+
     @property
     def run_id(self) -> int:
         return self._dataset.run_id
@@ -362,7 +473,7 @@ class DataSaver:
         return self._dataset.number_of_results
 
     @property
-    def dataset(self) -> DataSet:
+    def dataset(self) -> DataSetProtocol:
         return self._dataset
 
 
@@ -379,28 +490,30 @@ class Runner:
     """
 
     def __init__(
-            self, enteractions: List, exitactions: List,
-            experiment: Experiment = None, station: Station = None,
-            write_period: float = None,
-            interdeps: InterDependencies_ = InterDependencies_(),
-            name: str = '',
-            subscribers: Sequence[Tuple[Callable,
-                                        Union[MutableSequence,
-                                              MutableMapping]]] = None,
-            parent_datasets: Sequence[Dict] = (),
-            extra_log_info: str = '',
-            write_in_background: bool = False) -> None:
+        self,
+        enteractions: Sequence[ActionType],
+        exitactions: Sequence[ActionType],
+        experiment: Optional[Experiment] = None,
+        station: Optional[Station] = None,
+        write_period: Optional[float] = None,
+        interdeps: InterDependencies_ = InterDependencies_(),
+        name: str = "",
+        subscribers: Optional[Sequence[SubscriberType]] = None,
+        parent_datasets: Sequence[Mapping[Any, Any]] = (),
+        extra_log_info: str = "",
+        write_in_background: bool = False,
+        shapes: Optional[Shapes] = None,
+        in_memory_cache: bool = True,
+        dataset_class: DataSetType = DataSetType.DataSet,
+    ) -> None:
 
-        if write_in_background and (write_period is not None):
-            warnings.warn(f"The specified write period of {write_period} s "
-                          "will be ignored, since write_in_background==True")
-
+        self._dataset_class = dataset_class
+        self.write_period = self._calculate_write_period(write_in_background,
+                                                         write_period)
 
         self.enteractions = enteractions
         self.exitactions = exitactions
-        self.subscribers: Sequence[Tuple[Callable,
-                                         Union[MutableSequence,
-                                               MutableMapping]]]
+        self.subscribers: Sequence[SubscriberType]
         if subscribers is None:
             self.subscribers = []
         else:
@@ -408,16 +521,31 @@ class Runner:
         self.experiment = experiment
         self.station = station
         self._interdependencies = interdeps
-        # here we use 5 s as a sane default, but that value should perhaps
-        # be read from some config file
-        self.write_period = float(write_period) \
-            if write_period is not None else 5.0
-        if write_in_background:
-            self.write_period = 0.0
+        self._shapes: Shapes = shapes
         self.name = name if name else 'results'
         self._parent_datasets = parent_datasets
         self._extra_log_info = extra_log_info
         self._write_in_background = write_in_background
+        self._in_memory_cache = in_memory_cache
+        self.ds: DataSetProtocol
+
+    @staticmethod
+    def _calculate_write_period(
+            write_in_background: bool,
+            write_period: Optional[float]
+    ) -> float:
+        write_period_changed_from_default = (
+                write_period is not None and
+                write_period != qc.config.defaults.dataset.write_period
+        )
+        if write_in_background and write_period_changed_from_default:
+            warnings.warn(f"The specified write period of {write_period} s "
+                          "will be ignored, since write_in_background==True")
+        if write_in_background:
+            return 0.0
+        if write_period is None:
+            write_period = qc.config.dataset.write_period
+        return float(write_period)
 
     def __enter__(self) -> DataSaver:
         # TODO: should user actions really precede the dataset?
@@ -426,47 +554,79 @@ class Runner:
         for func, args in self.enteractions:
             func(*args)
 
+        dataset_class: Type[DataSetProtocol]
+
         # next set up the "datasaver"
         if self.experiment is not None:
-            self.ds = qc.new_data_set(
-                self.name, self.experiment.exp_id, conn=self.experiment.conn
+            exp_id: Optional[int] = self.experiment.exp_id
+            path_to_db: Optional[str] = self.experiment.path_to_db
+            conn: Optional["ConnectionPlus"] = self.experiment.conn
+        else:
+            exp_id = None
+            path_to_db = None
+            conn = None
+
+        if self._dataset_class is DataSetType.DataSet:
+            self.ds = DataSet(
+                name=self.name,
+                exp_id=exp_id,
+                conn=conn,
+                in_memory_cache=self._in_memory_cache,
+            )
+        elif self._dataset_class is DataSetType.DataSetInMem:
+            if self._in_memory_cache is False:
+                raise RuntimeError(
+                    "Cannot disable the in memory cache for a "
+                    "dataset that is only in memory."
+                )
+            self.ds = DataSetInMem._create_new_run(
+                name=self.name,
+                exp_id=exp_id,
+                path_to_db=path_to_db,
             )
         else:
-            self.ds = qc.new_data_set(self.name)
+            raise RuntimeError("Does not support any other dataset classes")
 
         # .. and give the dataset a snapshot as metadata
         if self.station is None:
-            station = qc.Station.default
+            station = Station.default
         else:
             station = self.station
 
-        if station:
-            self.ds.add_snapshot(json.dumps({'station': station.snapshot()},
-                                            cls=NumpyJSONEncoder))
-
-        if self._interdependencies == InterDependencies_():
-            raise RuntimeError("No parameters supplied")
+        if station is not None:
+            snapshot = station.snapshot()
         else:
-            self.ds.set_interdependencies(self._interdependencies)
+            snapshot = {}
 
-        links = [Link(head=self.ds.guid, **pdict)
-                 for pdict in self._parent_datasets]
-        self.ds.parent_dataset_links = links
-        self.ds.mark_started(start_bg_writer=self._write_in_background)
+        self.ds.prepare(
+            snapshot=snapshot,
+            interdeps=self._interdependencies,
+            write_in_background=self._write_in_background,
+            shapes=self._shapes,
+            parent_datasets=self._parent_datasets,
+        )
 
         # register all subscribers
-        for (callble, state) in self.subscribers:
-            # We register with minimal waiting time.
-            # That should make all subscribers be called when data is flushed
-            # to the database
-            log.debug(f'Subscribing callable {callble} with state {state}')
-            self.ds.subscribe(callble, min_wait=0, min_count=1, state=state)
+        if isinstance(self.ds, DataSet):
+            for (callble, state) in self.subscribers:
+                # We register with minimal waiting time.
+                # That should make all subscribers be called when data is flushed
+                # to the database
+                log.debug(f"Subscribing callable {callble} with state {state}")
+                self.ds.subscribe(callble, min_wait=0, min_count=1, state=state)
 
-        print(f'Starting experimental run with id: {self.ds.run_id}.'
-              f' {self._extra_log_info}')
-        log.info(f'Starting measurement with guid: {self.ds.guid}.'
-                 f' {self._extra_log_info}')
-        log.info(f'Using background writing: {self._write_in_background}')
+        print(
+            f"Starting experimental run with id: {self.ds.captured_run_id}."
+            f" {self._extra_log_info}"
+        )
+        log.info(
+            f"Starting measurement with guid: {self.ds.guid}, "
+            f'sample_name: "{self.ds.sample_name}", '
+            f'exp_name: "{self.ds.exp_name}", '
+            f'ds_name: "{self.ds.name}". '
+            f"{self._extra_log_info}"
+        )
+        log.info(f"Using background writing: {self._write_in_background}")
 
         self.datasaver = DataSaver(
                             dataset=self.ds,
@@ -495,17 +655,22 @@ class Runner:
                                           exception_value,
                                           traceback,
                                           file=stream)
+                exception_string = stream.getvalue()
                 log.warning('An exception occured in measurement with guid: '
-                            f'{self.ds.guid};\nTraceback:\n{stream.getvalue()}')
+                            f'{self.ds.guid};\nTraceback:\n{exception_string}')
+                self.ds.add_metadata("measurement_exception", exception_string)
 
             # and finally mark the dataset as closed, thus
             # finishing the measurement
             # Note that the completion of a dataset entails waiting for the
             # write thread to terminate (iff the write thread has been started)
             self.ds.mark_completed()
+            if get_data_export_automatic():
+                self.datasaver.export_data()
             log.info(f'Finished measurement with guid: {self.ds.guid}. '
                      f'{self._extra_log_info}')
-            self.ds.unsubscribe_all()
+            if isinstance(self.ds, DataSet):
+                self.ds.unsubscribe_all()
 
 
 T = TypeVar('T', bound='Measurement')
@@ -522,25 +687,28 @@ class Measurement:
             is the latest one created.
         station: The QCoDeS station to snapshot. If not given, the
             default one is used.
-        name: Name of the experiment. This will be passed down to the dataset
+        name: Name of the measurement. This will be passed down to the dataset
             produced by the measurement. If not given, a default value of
             'results' is used for the dataset.
     """
 
-    def __init__(self, exp: Optional[Experiment] = None,
-                 station: Optional[qc.Station] = None,
-                 name: str = '') -> None:
-        self.exitactions: List[Tuple[Callable, Sequence]] = []
-        self.enteractions: List[Tuple[Callable, Sequence]] = []
-        self.subscribers: List[Tuple[Callable, Union[MutableSequence,
-                                                     MutableMapping]]] = []
+    def __init__(
+        self,
+        exp: Optional[Experiment] = None,
+        station: Optional[Station] = None,
+        name: str = "",
+    ) -> None:
+        self.exitactions: List[ActionType] = []
+        self.enteractions: List[ActionType] = []
+        self.subscribers: List[SubscriberType] = []
 
         self.experiment = exp
         self.station = station
         self.name = name
-        self._write_period: Optional[float] = None
+        self.write_period: float = qc.config.dataset.write_period
         self._interdeps = InterDependencies_()
-        self._parent_datasets: List[Dict] = []
+        self._shapes: Shapes = None
+        self._parent_datasets: List[Dict[str, str]] = []
         self._extra_log_info: str = ''
 
     @property
@@ -548,7 +716,7 @@ class Measurement:
         return deepcopy(self._interdeps._id_to_paramspec)
 
     @property
-    def write_period(self) -> Optional[float]:
+    def write_period(self) -> float:
         return self._write_period
 
     @write_period.setter
@@ -561,8 +729,8 @@ class Measurement:
         self._write_period = wp_float
 
     def _paramspecbase_from_strings(
-            self, name: str, setpoints: Sequence[str] = None,
-            basis: Sequence[str] = None
+            self, name: str, setpoints: Optional[Sequence[str]] = None,
+            basis: Optional[Sequence[str]] = None
             ) -> Tuple[Tuple[ParamSpecBase, ...], Tuple[ParamSpecBase, ...]]:
         """
         Helper function to look up and get ParamSpecBases and to give a nice
@@ -605,8 +773,8 @@ class Measurement:
         return tuple(depends_on), tuple(inf_from)
 
     def register_parent(
-            self: T, parent: DataSet, link_type: str,
-            description: str = "") -> T:
+        self: T, parent: DataSetProtocol, link_type: str, description: str = ""
+    ) -> T:
         """
         Register a parent for the outcome of this measurement
 
@@ -627,8 +795,8 @@ class Measurement:
 
     def register_parameter(
             self: T, parameter: _BaseParameter,
-            setpoints: setpoints_type = None,
-            basis: setpoints_type = None,
+            setpoints: Optional[setpoints_type] = None,
+            basis: Optional[setpoints_type] = None,
             paramtype: Optional[str] = None) -> T:
         """
         Add QCoDeS Parameter to the dataset produced by running this
@@ -662,12 +830,6 @@ class Measurement:
                                f"{paramtype}. However, only "
                                f"{ParamSpec.allowed_types} are supported.")
 
-        # perhaps users will want a different name? But the name must be unique
-        # on a per-run basis
-        # we also use the name below, but perhaps is is better to have
-        # a more robust Parameter2String function?
-        name = str(parameter)
-
         if isinstance(parameter, ArrayParameter):
             self._register_arrayparameter(parameter,
                                           setpoints,
@@ -685,7 +847,13 @@ class Measurement:
                                           paramtype,
                                           )
         elif isinstance(parameter, Parameter):
-            self._register_parameter(name,
+            self._register_parameter(parameter.full_name,
+                                     parameter.label,
+                                     parameter.unit,
+                                     setpoints,
+                                     basis, paramtype)
+        elif isinstance(parameter, GroupedParameter):
+            self._register_parameter(parameter.full_name,
                                      parameter.label,
                                      parameter.unit,
                                      setpoints,
@@ -794,14 +962,13 @@ class Measurement:
         Register an ArrayParameter and the setpoints belonging to that
         ArrayParameter
         """
-        name = str(parameter)
         my_setpoints = list(setpoints) if setpoints else []
         for i in range(len(parameter.shape)):
             if parameter.setpoint_full_names is not None and \
                     parameter.setpoint_full_names[i] is not None:
                 spname = parameter.setpoint_full_names[i]
             else:
-                spname = f'{name}_setpoint_{i}'
+                spname = f'{parameter.full_name}_setpoint_{i}'
             if parameter.setpoint_labels:
                 splabel = parameter.setpoint_labels[i]
             else:
@@ -820,7 +987,7 @@ class Measurement:
 
             my_setpoints += [spname]
 
-        self._register_parameter(name,
+        self._register_parameter(parameter.full_name,
                                  parameter.label,
                                  parameter.unit,
                                  my_setpoints,
@@ -836,7 +1003,6 @@ class Measurement:
         Register an ParameterWithSetpoints and the setpoints belonging to the
         Parameter
         """
-        name = str(parameter)
         my_setpoints = list(setpoints) if setpoints else []
         for sp in parameter.setpoints:
             if not isinstance(sp, Parameter):
@@ -856,7 +1022,7 @@ class Measurement:
 
             my_setpoints.append(spname)
 
-        self._register_parameter(name,
+        self._register_parameter(parameter.full_name,
                                  parameter.label,
                                  parameter.unit,
                                  my_setpoints,
@@ -909,7 +1075,7 @@ class Measurement:
             setpoints_lists.append(my_setpoints)
 
         for i, setpoints in enumerate(setpoints_lists):
-            self._register_parameter(multiparameter.names[i],
+            self._register_parameter(multiparameter.full_names[i],
                                      multiparameter.labels[i],
                                      multiparameter.units[i],
                                      setpoints,
@@ -918,9 +1084,9 @@ class Measurement:
 
     def register_custom_parameter(
             self: T, name: str,
-            label: str = None, unit: str = None,
-            basis: setpoints_type = None,
-            setpoints: setpoints_type = None,
+            label: Optional[str] = None, unit: Optional[str] = None,
+            basis: Optional[setpoints_type] = None,
+            setpoints: Optional[setpoints_type] = None,
             paramtype: str = 'numeric') -> T:
         """
         Register a custom parameter with this measurement
@@ -969,7 +1135,7 @@ class Measurement:
 
         log.info(f'Removed {param} from Measurement.')
 
-    def add_before_run(self: T, func: Callable, args: tuple) -> T:
+    def add_before_run(self: T, func: Callable[..., Any], args: Sequence[Any]) -> T:
         """
         Add an action to be performed before the measurement.
 
@@ -987,7 +1153,8 @@ class Measurement:
 
         return self
 
-    def add_after_run(self: T, func: Callable, args: tuple) -> T:
+    def add_after_run(self: T,
+                      func: Callable[..., Any], args: Sequence[Any]) -> T:
         """
         Add an action to be performed after the measurement.
 
@@ -1005,9 +1172,11 @@ class Measurement:
 
         return self
 
-    def add_subscriber(self: T,
-                       func: Callable,
-                       state: Union[MutableSequence, MutableMapping]) -> T:
+    def add_subscriber(
+            self: T,
+            func: Callable[..., Any],
+            state: Union[MutableSequence[Any], MutableMapping[Any, Any]]
+    ) -> T:
         """
         Add a subscriber to the dataset of the measurement.
 
@@ -1021,7 +1190,25 @@ class Measurement:
 
         return self
 
-    def run(self, write_in_background: bool = False) -> Runner:
+    def set_shapes(self, shapes: Shapes) -> None:
+        """
+        Set the shapes of the data to be recorded in this
+        measurement.
+
+        Args:
+            shapes: Dictionary from names of dependent parameters to a tuple
+                of integers describing the shape of the measurement.
+        """
+        RunDescriber._verify_interdeps_shape(interdeps=self._interdeps,
+                                             shapes=shapes)
+        self._shapes = shapes
+
+    def run(
+        self,
+        write_in_background: Optional[bool] = None,
+        in_memory_cache: bool = True,
+        dataset_class: DataSetType = DataSetType.DataSet,
+    ) -> Runner:
         """
         Returns the context manager for the experimental run
 
@@ -1030,13 +1217,28 @@ class Measurement:
                 within the context manager with ``DataSaver.add_result``
                 will be stored in background, without blocking the
                 main thread that is executing the context manager.
+                By default the setting for write in background will be
+                read from the ``qcodesrc.json`` config file.
+            in_memory_cache: Should measured data be keep in memory
+                and available as part of the `dataset.cache` object.
+            dataset_class: Enum representing the Class used to store data
+                with.
         """
-        return Runner(self.enteractions, self.exitactions,
-                      self.experiment, station=self.station,
-                      write_period=self._write_period,
-                      interdeps=self._interdeps,
-                      name=self.name,
-                      subscribers=self.subscribers,
-                      parent_datasets=self._parent_datasets,
-                      extra_log_info=self._extra_log_info,
-                      write_in_background=write_in_background)
+        if write_in_background is None:
+            write_in_background = qc.config.dataset.write_in_background
+        return Runner(
+            self.enteractions,
+            self.exitactions,
+            self.experiment,
+            station=self.station,
+            write_period=self._write_period,
+            interdeps=self._interdeps,
+            name=self.name,
+            subscribers=self.subscribers,
+            parent_datasets=self._parent_datasets,
+            extra_log_info=self._extra_log_info,
+            write_in_background=write_in_background,
+            shapes=self._shapes,
+            in_memory_cache=in_memory_cache,
+            dataset_class=dataset_class,
+        )

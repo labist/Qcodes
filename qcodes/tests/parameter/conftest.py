@@ -1,7 +1,9 @@
 from collections import namedtuple
+from typing import Any, Optional
 
 import pytest
 
+from qcodes.instrument.base import InstrumentBase
 from qcodes.instrument.parameter import Parameter
 import qcodes.utils.validators as vals
 
@@ -109,7 +111,7 @@ class GetSetRawParameter(Parameter):
         pass
 
 
-class BookkeepingValidator(vals.Validator):
+class BookkeepingValidator(vals.Validator[Any]):
     """
     Validator that keeps track of what it validates
     """
@@ -143,6 +145,19 @@ class MemoryParameter(Parameter):
         return get_func
 
 
+class VirtualParameter(Parameter):
+    def __init__(self, name: str, param: Parameter, **kwargs):
+        self._param = param
+        super().__init__(name=name, **kwargs)
+
+    @property
+    def underlying_instrument(self) -> Optional[InstrumentBase]:
+        return self._param.instrument
+
+    def get_raw(self):
+        return self._param.get()
+
+
 blank_instruments = (
     None,  # no instrument at all
     namedtuple('noname', '')(),  # no .name
@@ -163,11 +178,11 @@ class ParameterMemory:
         self._value = value
 
     def set_p_prefixed(self, val):
-        self._value = 'PVAL: {:d}'.format(val)
+        self._value = f'PVAL: {val:d}'
 
     @staticmethod
     def parse_set_p(val):
-        return '{:d}'.format(val)
+        return f'{val:d}'
 
     @staticmethod
     def strip_prefix(val):

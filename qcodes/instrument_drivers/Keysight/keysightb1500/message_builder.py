@@ -1,13 +1,13 @@
+from typing import Iterable, Any
+
 from functools import wraps
 from operator import xor
 from typing import List, Union, Callable, TypeVar, cast, Optional
 
-from qcodes.utils.deprecate import issue_deprecation_warning
-
 from . import constants
 
 
-def as_csv(l, sep=','):
+def as_csv(l: Iterable[Any], sep: str = ',') -> str:
     """Returns items in iterable ls as comma-separated string"""
     return sep.join(format(x) for x in l)
 
@@ -18,7 +18,7 @@ MessageBuilderMethodT = TypeVar('MessageBuilderMethodT',
 
 def final_command(f: MessageBuilderMethodT) -> MessageBuilderMethodT:
     @wraps(f)
-    def wrapper(*args, **kwargs):
+    def wrapper(*args: Any, **kwargs: Any) -> "MessageBuilder":
         res: 'MessageBuilder' = f(*args, **kwargs)
         res._msg.set_final()
 
@@ -27,12 +27,12 @@ def final_command(f: MessageBuilderMethodT) -> MessageBuilderMethodT:
     return cast(MessageBuilderMethodT, wrapper)
 
 
-class CommandList(list):
-    def __init__(self):
+class CommandList(List[Any]):
+    def __init__(self) -> None:
         super().__init__()
         self.is_final = False
 
-    def append(self, obj):
+    def append(self, obj: Any) -> None:
         if self.is_final:
             raise ValueError(f'Cannot add commands after `{self[-1]}`. '
                              f'`{self[-1]}` must be the last command in the '
@@ -40,14 +40,14 @@ class CommandList(list):
         else:
             super().append(obj)
 
-    def set_final(self):
+    def set_final(self) -> None:
         self.is_final = True
 
-    def clear(self):
+    def clear(self) -> None:
         self.is_final = False
         super().clear()
 
-    def __str__(self):
+    def __str__(self) -> str:
         return as_csv(self, ';')
 
 
@@ -61,7 +61,7 @@ class MessageBuilder:
     constants that the commands expect as arguments.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._msg = CommandList()
 
     @property
@@ -75,7 +75,7 @@ class MessageBuilder:
                 f"programs.)")
         return joined
 
-    def clear_message_queue(self):
+    def clear_message_queue(self) -> None:
         self._msg.clear()
 
     def aad(self,
@@ -400,7 +400,7 @@ class MessageBuilder:
     def als(self,
             chnum: Union[constants.ChNr, int],
             n_bytes: int,
-            block: bytes):
+            block: bytes) -> None:
         # The format specification in the manual is a bit unclear, and I do
         # not have the module installed to test this command, hence:
         raise NotImplementedError
@@ -433,7 +433,7 @@ class MessageBuilder:
     def alw(self,
             chnum: Union[constants.ChNr, int],
             n_bytes: int,
-            block: bytes):
+            block: bytes) -> None:
         # The format specification in the manual is a bit unclear, and I do
         # not have the module installed to test this command, hence:
         raise NotImplementedError
@@ -2591,25 +2591,9 @@ class MessageBuilder:
         return self
 
     def pch(self,
-            controller: Union[constants.ChNr, int, None] = None,
-            worker: Union[constants.ChNr, int, None] = None,
-            master: Union[constants.ChNr, int, None] = None,
-            slave: Union[constants.ChNr, int, None] = None
+            controller: Union[constants.ChNr, int],
+            worker: Union[constants.ChNr, int],
             ) -> 'MessageBuilder':
-        if master is not None:
-            issue_deprecation_warning("'master' kwarg", "",
-                                      "'controller' kwarg")
-            controller = master
-        if slave is not None:
-            issue_deprecation_warning("'slave' kwarg", "",
-                                      "'worker' kwarg")
-            worker = slave
-
-        if controller is None:
-            raise TypeError("pch() missing required argument: 'controller'")
-        if worker is None:
-            raise TypeError("pch() missing required argument: 'worker'")
-
         cmd = f'PCH {controller},{worker}'
 
         self._msg.append(cmd)
@@ -3454,7 +3438,7 @@ class MessageBuilder:
         self._msg.append(cmd)
         return self
 
-    def tsr(self, chnum=None) -> 'MessageBuilder':
+    def tsr(self, chnum: Optional[int] = None) -> 'MessageBuilder':
         cmd = f'TSR' if chnum is None else f'TSR {chnum}'
 
         self._msg.append(cmd)

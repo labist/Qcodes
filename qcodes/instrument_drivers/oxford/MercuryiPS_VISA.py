@@ -1,15 +1,14 @@
+import logging
 import time
 from functools import partial
-from typing import Dict, Union, Optional, Callable, List, cast
-import logging
-from distutils.version import LooseVersion
+from typing import Any, Callable, Dict, List, Optional, Union, cast
 
 import numpy as np
+from packaging import version
 
 from qcodes.instrument.channel import InstrumentChannel
 from qcodes.instrument.visa import VisaInstrument
 from qcodes.math_utils.field_vector import FieldVector
-from qcodes.utils.deprecate import deprecate
 
 log = logging.getLogger(__name__)
 visalog = logging.getLogger('qcodes.instrument.visa')
@@ -40,9 +39,9 @@ def _signal_parser(our_scaling: float, response: str) -> float:
     numchars = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '-']
 
     response = _response_preparser(response)
-    digits = ''.join([d for d in response if d in numchars])
-    scale_and_unit = response[len(digits):]
-    if scale_and_unit == '':
+    digits = "".join(d for d in response if d in numchars)
+    scale_and_unit = response[len(digits) :]
+    if scale_and_unit == "":
         their_scaling: float = 1
     elif scale_and_unit[0] in scale_to_factor.keys():
         their_scaling = scale_to_factor[scale_and_unit[0]]
@@ -74,7 +73,7 @@ class MercuryWorkerPS(InstrumentChannel):
 
         # The firmware update from 2.5 -> 2.6 changed the command
         # syntax slightly
-        if LooseVersion(self.root_instrument.firmware) >= LooseVersion('2.6'):
+        if version.parse(self.root_instrument.firmware) >= version.parse("2.6"):
             self.psu_string = "SPSU"
         else:
             self.psu_string = "PSU"
@@ -208,22 +207,17 @@ class MercuryWorkerPS(InstrumentChannel):
         #  the intended value
 
 
-@deprecate("", "the class <MercuryWorkerPS>")
-class MercurySlavePS(MercuryWorkerPS):
-    pass
-
-
 class MercuryiPS(VisaInstrument):
     """
     Driver class for the QCoDeS Oxford Instruments MercuryiPS magnet power
     supply
     """
 
-    def __init__(self, name: str, address: str, visalib=None,
+    def __init__(self, name: str, address: str, visalib: Optional[str] = None,
                  field_limits: Optional[Callable[[float,
                                                   float,
                                                   float], bool]] = None,
-                 **kwargs) -> None:
+                 **kwargs: Any) -> None:
         """
         Args:
             name: The name to give this instrument internally in QCoDeS
@@ -616,7 +610,7 @@ class MercuryiPS(VisaInstrument):
         visalog.debug(f"Got instrument response: {resp}")
 
         if 'INVALID' in resp:
-            log.error('Invalid command. Got response: {}'.format(resp))
+            log.error(f'Invalid command. Got response: {resp}')
             base_resp = resp
         # if the command was not invalid, it can either be a SET or a READ
         # SET:
@@ -628,6 +622,6 @@ class MercuryiPS(VisaInstrument):
             # the response of a valid command echoes back said command,
             # thus we remove that part
             base_cmd = cmd.replace('READ:', '')
-            base_resp = resp.replace('STAT:{}'.format(base_cmd), '')
+            base_resp = resp.replace(f'STAT:{base_cmd}', '')
 
         return base_resp

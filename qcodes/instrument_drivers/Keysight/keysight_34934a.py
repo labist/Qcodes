@@ -1,7 +1,9 @@
 import logging
 import re
-from qcodes import VisaInstrument, InstrumentChannel, validators
-from typing import Union, List, Tuple, Optional, Callable
+from typing import Callable, List, Optional, Tuple, Union
+
+from qcodes import InstrumentChannel, VisaInstrument, validators
+
 from .keysight_34980a_submodules import KeysightSwitchMatrixSubModule
 
 
@@ -42,16 +44,16 @@ class Keysight34934A(KeysightSwitchMatrixSubModule):
         layout = self.ask(f'SYSTEM:MODule:TERMinal:TYPE? {self.slot}')
         self._is_locked = (layout == 'NONE')
         if self._is_locked:
-            logging.warning(f'For slot {slot}, no configuration module'
-                            f'connected, or safety interlock jumper removed. '
-                            "Making any connection is not allowed")
-            config = self.ask(f'SYST:CTYP? {slot}').strip('"').split(',')[1]
-            layout = config.split('-')[1]
-        self.row, self.column = [
-            int(num) for num in re.findall(r'\d+', layout)
-        ]
+            logging.warning(
+                f"For slot {slot}, no configuration module"
+                f"connected, or safety interlock jumper removed. "
+                "Making any connection is not allowed"
+            )
+            config = self.ask(f"SYST:CTYP? {slot}").strip('"').split(",")[1]
+            layout = config.split("-")[1]
+        self.row, self.column = (int(num) for num in re.findall(r"\d+", layout))
 
-    def write(self, cmd: str):
+    def write(self, cmd: str) -> None:
         """
         When the module is safety interlocked, users can not make any
         connections. There will be no effect when try to connect any channels.
@@ -74,10 +76,10 @@ class Keysight34934A(KeysightSwitchMatrixSubModule):
         if (row > self.row) or (column > self.column):
             raise ValueError('row/column value out of range')
 
-    def _get_relay_protection_mode(self):
+    def _get_relay_protection_mode(self) -> str:
         return self.ask(f'SYSTem:MODule:ROW:PROTection? {self.slot}')
 
-    def _set_relay_protection_mode(self, mode: str):
+    def _set_relay_protection_mode(self, mode: str) -> None:
         self.write(f'SYSTem:MODule:ROW:PROTection {self.slot}, {mode}')
 
     def to_channel_list(
@@ -117,7 +119,7 @@ class Keysight34934A(KeysightSwitchMatrixSubModule):
             rows: int,
             columns: int,
             wiring_config: Optional[str] = ''
-    ) -> Callable:
+    ) -> Callable[[int, int], str]:
         """
         to select the correct numbering function based on the matrix layout.
         On P168 of the user's guide for Agilent 34934A High Density Matrix
@@ -168,7 +170,7 @@ class Keysight34934A(KeysightSwitchMatrixSubModule):
         channels_per_row = 800 / rows
         offset += 100 - int(channels_per_row)
 
-        def numbering_function(row, col):
+        def numbering_function(row: int, col: int) -> str:
             return str(int(channels_per_row * row + col + offset))
 
         return numbering_function

@@ -1,5 +1,5 @@
 import re
-from typing import Optional, Tuple, TYPE_CHECKING, Dict, Union, cast
+from typing import Optional, Tuple, TYPE_CHECKING, Dict, Union, cast, Any
 from typing_extensions import TypedDict
 from collections import namedtuple
 import numpy as np
@@ -7,13 +7,13 @@ import numpy as np
 from qcodes import InstrumentChannel
 from .message_builder import MessageBuilder
 from . import constants
-from .constants import ModuleKind, SlotNr, MeasurementStatus, ChannelName
+from .constants import ModuleKind, SlotNr, MeasurementStatus, ChannelName, ChNr
 
 if TYPE_CHECKING:
     from .KeysightB1500_base import KeysightB1500
 
 
-_FMTResponse = namedtuple('FMTResponse', 'value status channel type')
+_FMTResponse = namedtuple('_FMTResponse', 'value status channel type')
 
 
 class MeasurementNotTaken(Exception):
@@ -244,7 +244,7 @@ def get_measurement_summary(status_array: np.ndarray) -> str:
     return summary
 
 
-def convert_dummy_val_to_nan(param: _FMTResponse):
+def convert_dummy_val_to_nan(param: _FMTResponse) -> None:
     """
     Converts dummy value to NaN. Instrument may output dummy value (
     199.999E+99) if measurement data is over the measurement range. Or the
@@ -283,11 +283,12 @@ class B1500Module(InstrumentChannel):
     """
     MODULE_KIND: ModuleKind
 
-    def __init__(self, parent: 'KeysightB1500', name: Optional[str], slot_nr,
-                 **kwargs):
+    def __init__(self, parent: 'KeysightB1500', name: Optional[str],
+                 slot_nr: int,
+                 **kwargs: Any):
         # self.channels will be populated in the concrete module subclasses
         # because channel count is module specific
-        self.channels: Tuple
+        self.channels: Tuple[ChNr, ...]
         self.slot_nr = SlotNr(slot_nr)
 
         if name is None:
@@ -300,7 +301,7 @@ class B1500Module(InstrumentChannel):
     parse_spot_measurement_response = parse_spot_measurement_response
     parse_module_query_response = parse_module_query_response
 
-    def enable_outputs(self):
+    def enable_outputs(self) -> None:
         """
         Enables all outputs of this module by closing the output relays of its
         channels.
@@ -311,7 +312,7 @@ class B1500Module(InstrumentChannel):
         msg = MessageBuilder().cn(self.channels).message
         self.write(msg)
 
-    def disable_outputs(self):
+    def disable_outputs(self) -> None:
         """
         Disables all outputs of this module by opening the output relays of its
         channels.
@@ -356,18 +357,24 @@ class B1500Module(InstrumentChannel):
 
 class StatusMixin:
     def __init__(self) -> None:
-        self.param1 = _FMTResponse(None, None, None, None)
-        self.param2 = _FMTResponse(None, None, None, None)
         self.names = tuple(['param1', 'param2'])
 
     def status_summary(self) -> Dict[str, str]:
-        status_array_param1 = self.param1.status
-        status_array_param2 = self.param2.status
+        return_dict: Dict[str, str] = {}
 
-        if status_array_param1 is None:
-            raise MeasurementNotTaken("First run_sweep to generate the data")
-        summary_param1 = get_measurement_summary(status_array_param1)
-        summary_param2 = get_measurement_summary(status_array_param2)
-        return_dict = {self.names[0]: summary_param1,
-                       self.names[1]: summary_param2}
+        for name_index, name in enumerate(self.names):
+            param_data: _FMTResponse = getattr(self, f"param{name_index+1}")
+
+            status_array = param_data.status
+            if status_array is None:
+                self_full_name = getattr(self, "full_name", "this")
+                raise MeasurementNotTaken(
+                    f"First run sweep measurement with {self_full_name} "
+                    f"parameter to obtain the data; then it will be possible "
+                    f"to obtain status summary for that data."
+                )
+
+            summary = get_measurement_summary(status_array)
+            return_dict[name] = summary
+
         return return_dict

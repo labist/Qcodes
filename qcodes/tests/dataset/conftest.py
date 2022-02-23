@@ -3,41 +3,41 @@ import os
 import shutil
 import tempfile
 from contextlib import contextmanager
+from typing import Iterator
 
 import numpy as np
 import pytest
 
 import qcodes as qc
-from qcodes import new_data_set, new_experiment
 from qcodes.dataset.descriptions.dependencies import InterDependencies_
 from qcodes.dataset.descriptions.param_spec import ParamSpec, ParamSpecBase
 from qcodes.dataset.measurements import Measurement
-from qcodes.dataset.sqlite.database import connect, initialise_database
-from qcodes.instrument.parameter import (ArrayParameter, Parameter,
-                                         ParameterWithSetpoints)
-from qcodes.tests.instrument_mocks import (ArraySetPointParam,
-                                           DummyChannelInstrument,
-                                           DummyInstrument,
-                                           Multi2DSetPointParam,
-                                           setpoint_generator)
+from qcodes.dataset.sqlite.database import connect
+from qcodes.instrument.parameter import (
+    ArrayParameter,
+    Parameter,
+    ParameterWithSetpoints,
+)
+from qcodes.tests.instrument_mocks import (
+    ArraySetPointParam,
+    DummyChannelInstrument,
+    DummyInstrument,
+    Multi2DSetPointParam,
+    Multi2DSetPointParam2Sizes,
+    setpoint_generator,
+)
 from qcodes.utils.validators import Arrays, ComplexNumbers, Numbers
 
-n_experiments = 0
 
-
-@pytest.fixture(scope="function")
-def empty_temp_db(tmp_path):
-    global n_experiments
-    n_experiments = 0
-    # create a temp database for testing
+@pytest.fixture(scope="function", name="non_created_db")
+def _make_non_created_db(tmp_path):
+    # set db location to a non existing file
     try:
-        qc.config["core"]["db_location"] = \
-            str(tmp_path / 'temp.db')
-        if os.environ.get('QCODES_SQL_DEBUG'):
+        qc.config["core"]["db_location"] = str(tmp_path / "temp.db")
+        if os.environ.get("QCODES_SQL_DEBUG"):
             qc.config["core"]["db_debug"] = True
         else:
             qc.config["core"]["db_debug"] = False
-        initialise_database()
         yield
     finally:
         # there is a very real chance that the tests will leave open
@@ -91,25 +91,6 @@ def two_empty_temp_db_connections(tmp_path):
         gc.collect()
 
 
-@pytest.fixture(scope='function')
-def experiment(empty_temp_db):
-    e = new_experiment("test-experiment", sample_name="test-sample")
-    try:
-        yield e
-    finally:
-        e.conn.close()
-
-
-@pytest.fixture(scope='function')
-def dataset(experiment):
-    dataset = new_data_set("test-dataset")
-    try:
-        yield dataset
-    finally:
-        dataset.unsubscribe_all()
-        dataset.conn.close()
-
-
 @contextmanager
 def temporarily_copied_DB(filepath: str, **kwargs):
     """
@@ -156,7 +137,7 @@ def scalar_dataset(dataset):
 
     dataset.set_interdependencies(idps)
     dataset.mark_started()
-    dataset.add_results([{p.name: np.int(n_rows*10*pn+i)
+    dataset.add_results([{p.name: int(n_rows*10*pn+i)
                           for pn, p in enumerate(all_params)}
                          for i in range(n_rows)])
     dataset.mark_completed()
@@ -198,6 +179,7 @@ def array_dataset(experiment, request):
     finally:
         datasaver.dataset.conn.close()
 
+
 @pytest.fixture(scope="function",
                 params=["array", "numeric"])
 def array_dataset_with_nulls(experiment, request):
@@ -235,6 +217,22 @@ def array_dataset_with_nulls(experiment, request):
 def multi_dataset(experiment, request):
     meas = Measurement()
     param = Multi2DSetPointParam()
+
+    meas.register_parameter(param, paramtype=request.param)
+
+    with meas.run() as datasaver:
+        datasaver.add_result((param, param.get(),))
+    try:
+        yield datasaver.dataset
+    finally:
+        datasaver.dataset.conn.close()
+
+
+@pytest.fixture(scope="function",
+                params=["array"])
+def different_setpoint_dataset(experiment, request):
+    meas = Measurement()
+    param = Multi2DSetPointParam2Sizes()
 
     meas.register_parameter(param, paramtype=request.param)
 
@@ -335,37 +333,6 @@ def array_in_str_dataset(experiment, request):
 
 
 @pytest.fixture
-def standalone_parameters_dataset(dataset):
-    n_params = 3
-    n_rows = 10**3
-    params_indep = [ParamSpecBase(f'param_{i}',
-                                  'numeric',
-                                  label=f'param_{i}',
-                                  unit='V')
-                    for i in range(n_params)]
-
-    param_dep = ParamSpecBase(f'param_{n_params}',
-                              'numeric',
-                              label=f'param_{n_params}',
-                              unit='Ohm')
-
-    params_all = params_indep + [param_dep]
-
-    idps = InterDependencies_(
-        dependencies={param_dep: tuple(params_indep[0:1])},
-        standalones=tuple(params_indep[1:]))
-
-    dataset.set_interdependencies(idps)
-
-    dataset.mark_started()
-    dataset.add_results([{p.name: np.int(n_rows*10*pn+i)
-                          for pn, p in enumerate(params_all)}
-                         for i in range(n_rows)])
-    dataset.mark_completed()
-    yield dataset
-
-
-@pytest.fixture
 def some_paramspecbases():
 
     psb1 = ParamSpecBase('psb1', paramtype='text', label='blah', unit='')
@@ -430,7 +397,7 @@ def some_interdeps():
     ps5 = ParamSpecBase('ps5', paramtype='numeric', label='Signal',
                         unit='Conductance')
     ps6 = ParamSpecBase('ps6', paramtype='text', label='Goodness',
-                    unit='')
+                        unit='')
 
     idps = InterDependencies_(dependencies={ps5: (ps3, ps4), ps6: (ps3, ps4)},
                               inferences={ps4: (ps2,), ps3: (ps1,)})
@@ -544,13 +511,11 @@ def complex_num_instrument():
                             get_cmd=lambda: np.arange(5),
                             set_cmd=False)
 
-
     dummyinst.add_parameter('some_complex_array',
                             label='Some Array',
                             unit='some_array_unit',
                             get_cmd=lambda: np.ones(5) + 1j*np.ones(5),
                             set_cmd=False)
-
 
     yield dummyinst
     dummyinst.close()
@@ -565,18 +530,21 @@ def SpectrumAnalyzer():
 
     class Spectrum(ArrayParameter):
 
-        def __init__(self, name, instrument):
-            super().__init__(name=name,
-                             shape=(1,),  # this attribute should be removed
-                             label='Flower Power Spectrum',
-                             unit='V/sqrt(Hz)',
-                             setpoint_names=('Frequency',),
-                             setpoint_units=('Hz',))
+        def __init__(self, name, instrument, **kwargs):
+            super().__init__(
+                name=name,
+                shape=(1,),  # this attribute should be removed
+                label="Flower Power Spectrum",
+                unit="V/sqrt(Hz)",
+                setpoint_names=("Frequency",),
+                setpoint_units=("Hz",),
+                instrument=instrument,
+                **kwargs,
+            )
 
             self.npts = 100
             self.start = 0
             self.stop = 2e6
-            self._instrument = instrument
 
         def get_raw(self):
             # This is how it should be: the setpoints are generated at the
@@ -588,7 +556,7 @@ def SpectrumAnalyzer():
 
     class MultiDimSpectrum(ArrayParameter):
 
-        def __init__(self, name, instrument):
+        def __init__(self, name, instrument, **kwargs):
             self.start = 0
             self.stop = 2e6
             self.npts = (100, 50, 20)
@@ -600,15 +568,17 @@ def SpectrumAnalyzer():
                               self.npts[2])
             setpoints = setpoint_generator(sp1, sp2, sp3)
 
-            super().__init__(name=name,
-                             instrument=instrument,
-                             setpoints=setpoints,
-                             shape=(100, 50, 20),
-                             label='Flower Power Spectrum in 3D',
-                             unit='V/sqrt(Hz)',
-                             setpoint_names=('Frequency0', 'Frequency1',
-                                             'Frequency2'),
-                             setpoint_units=('Hz', 'Other Hz', "Third Hz"))
+            super().__init__(
+                name=name,
+                instrument=instrument,
+                setpoints=setpoints,
+                shape=(100, 50, 20),
+                label="Flower Power Spectrum in 3D",
+                unit="V/sqrt(Hz)",
+                setpoint_names=("Frequency0", "Frequency1", "Frequency2"),
+                setpoint_units=("Hz", "Other Hz", "Third Hz"),
+                **kwargs,
+            )
 
         def get_raw(self):
             return np.random.randn(*self.npts)
@@ -641,3 +611,31 @@ def meas_with_registered_param(experiment, DAC, DMM):
     meas.register_parameter(DAC.ch1)
     meas.register_parameter(DMM.v1, setpoints=[DAC.ch1])
     yield meas
+
+
+@pytest.fixture(name="meas_with_registered_param_complex")
+def _make_meas_with_registered_param_complex(experiment, DAC, complex_num_instrument):
+    meas = Measurement()
+    meas.register_parameter(DAC.ch1)
+    meas.register_parameter(complex_num_instrument.complex_num, setpoints=[DAC.ch1])
+    yield meas
+
+
+@pytest.fixture(name="dummyinstrument")
+def _make_dummy_instrument() -> Iterator[DummyChannelInstrument]:
+    inst = DummyChannelInstrument('dummyinstrument')
+    try:
+        yield inst
+    finally:
+        inst.close()
+
+
+class ArrayshapedParam(Parameter):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def get_raw(self):
+        shape = self.vals.shape
+
+        return np.random.rand(*shape)

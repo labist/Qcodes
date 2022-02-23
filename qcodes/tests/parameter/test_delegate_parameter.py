@@ -3,12 +3,12 @@ Test suite for DelegateParameter
 """
 from typing import cast
 
+import hypothesis.strategies as hst
 import pytest
 from hypothesis import given
-import hypothesis.strategies as hst
 
-from qcodes.instrument.parameter import (
-    Parameter, DelegateParameter, ParamRawDataType)
+from qcodes.instrument.parameter import DelegateParameter, Parameter, ParamRawDataType
+from .conftest import BetterGettableParam
 
 # Disable warning that is created by using fixtures
 # pylint: disable=redefined-outer-name
@@ -67,8 +67,6 @@ def make_observable_parameter(request):
             param.get_instr_val = get_cmd  # type: ignore[assignment]
         return param
     yield make_parameter
-
-
 
 
 def test_observable_parameter(make_observable_parameter, numeric_val):
@@ -252,21 +250,24 @@ def test_delegate_get_updates_cache(make_observable_parameter, numeric_val):
     assert t.get_instr_val() == initial_value
 
 
-def test_delegate_parameter_get_and_snapshot_raises_with_none():
+def test_delegate_parameter_get_and_snapshot_with_none_source():
     """
-    Test that a delegate parameter raises on get and snapshot if
-    the source has a value of None and a scale is used.
-    But works correctly if the source is remapped to a real parameter.
-
+    Test that a delegate parameter returns None on get and snapshot if
+    the source has a value of None and an offset or scale is used.
+    And returns a value if the source is remapped to a real parameter.
     """
     none_param = Parameter("None")
     source_param = Parameter('source', get_cmd=None, set_cmd=None, initial_value=2)
     delegate_param = DelegateParameter(name='delegate', source=none_param)
+    delegate_param.offset = 4
+    assert delegate_param.get() is None
+    assert delegate_param.snapshot()['value'] is None
+
+    delegate_param.offset = None
     delegate_param.scale = 2
-    with pytest.raises(TypeError):
-        delegate_param.get()
-    with pytest.raises(TypeError):
-        delegate_param.snapshot()
+    assert delegate_param.get() is None
+    assert delegate_param.snapshot()['value'] is None
+
     assert delegate_param.cache._parameter.source.cache is none_param.cache
     delegate_param.source = source_param
     assert delegate_param.get() == 1
@@ -460,3 +461,53 @@ def test_delegate_parameter_fixed_label_unit_unchanged():
     delegate_param.source = None
     assert delegate_param.label == "delegatelabel"
     assert delegate_param.unit == "delegateunit"
+
+
+def test_cache_invalidation():
+    value = 10
+    p = BetterGettableParam('testparam', set_cmd=None, get_cmd=None)
+    d = DelegateParameter('test_delegate_parameter', p,
+                          initial_cache_value=value)
+    assert p._get_count == 0
+    assert d.cache.get() == value
+    assert p._get_count == 0
+
+    assert d.cache.valid is True
+    assert p.cache.valid is True
+
+    d.cache.invalidate()
+
+    assert d.cache.valid is False
+    assert p.cache.valid is False
+
+    d.cache.get()
+    assert p._get_count == 1
+
+    assert d.cache.valid is True
+    assert p.cache.valid is True
+
+
+def test_cache_no_source():
+    d = DelegateParameter('test_delegate_parameter', source=None)
+
+    assert d.cache.valid is False
+    assert d.cache.timestamp is None
+    assert d.cache.max_val_age is None
+
+    with pytest.raises(
+            TypeError,
+            match="Cannot get the cache of a "
+                  "DelegateParameter that delegates to None"):
+        d.cache.get()
+
+    d.cache.invalidate()
+
+
+def test_underlying_instrument_property_for_delegate_parameter():
+    p = BetterGettableParam('testparam', set_cmd=None, get_cmd=None)
+    d = DelegateParameter('delegate_parameter_with_source', p)
+
+    assert d.underlying_instrument is p.root_instrument
+
+    d = DelegateParameter('delegate_parameter_without_source', source=None)
+    assert d.underlying_instrument is None

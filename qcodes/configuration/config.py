@@ -3,11 +3,11 @@ import copy
 import json
 import logging
 import os
-import pkg_resources as pkgr
 from os.path import expanduser
 from pathlib import Path
+from typing import Any, Dict, Mapping, Optional, Tuple, Union
+
 import jsonschema
-from typing import Dict, Tuple, Optional, Any, Mapping, Union
 
 logger = logging.getLogger(__name__)
 
@@ -39,15 +39,14 @@ class Config:
     schema_file_name = "qcodesrc_schema.json"
     """Name of schema file"""
     # get abs path of packge config file
-    default_file_name = pkgr.resource_filename(__name__, config_file_name)
+    default_file_name = str(Path(__file__).parent / config_file_name)
     """Filename of default config"""
     current_config_path = default_file_name
     """Path of the last loaded config file"""
     _loaded_config_files = [default_file_name]
 
     # get abs path of schema  file
-    schema_default_file_name = pkgr.resource_filename(__name__,
-                                                      schema_file_name)
+    schema_default_file_name = str(Path(__file__).parent / schema_file_name)
     """Filename of default schema"""
 
     # home dir, os independent
@@ -99,7 +98,7 @@ class Config:
         self.validate(defaults, defaults_schema)
         return defaults, defaults_schema
 
-    def update_config(self, path: Optional[str] = None) -> dict:
+    def update_config(self, path: Optional[str] = None) -> Dict[str, Any]:
         """
         Load defaults updates with cwd, env, home and the path specified
         and validates.
@@ -155,7 +154,9 @@ class Config:
 
         return config
 
-    def _update_config_from_file(self, file_path: str, schema: str, config: dict
+    def _update_config_from_file(self, file_path: str,
+                                 schema: str,
+                                 config: Dict[str, Any]
                                  ) -> None:
         """
         Updated ``config`` dictionary with config information from file in
@@ -173,8 +174,8 @@ class Config:
             self.validate(config, self.current_schema, schema)
 
     def validate(self,
-                 json_config: Optional[dict] = None,
-                 schema: Optional[dict] = None,
+                 json_config: Optional[Dict[str, Any]] = None,
+                 schema: Optional[Dict[str, Any]] = None,
                  extra_schema_path: Optional[str] = None
                  ) -> None:
         """
@@ -320,7 +321,7 @@ class Config:
         Raises:
             FileNotFoundError: if config is missing
         """
-        with open(path, "r") as fp:
+        with open(path) as fp:
             config = json.load(fp)
 
         logger.debug(f'Loading config from {path}')
@@ -416,7 +417,7 @@ class Config:
         return output
 
 
-class DotDict(dict):
+class DotDict(Dict[Any, Any]):
     """
     Wrapper dict that allows to get dotted attributes
 
@@ -454,15 +455,24 @@ class DotDict(dict):
         target = dict.__getitem__(self, myKey)
         return restOfKey in target
 
-    def __deepcopy__(self, memo: Optional[dict]) -> 'DotDict':
+    def __deepcopy__(self, memo: Optional[Dict[Any, Any]]) -> 'DotDict':
         return DotDict(copy.deepcopy(dict(self)))
 
-    # dot access baby
-    __setattr__ = __setitem__
-    __getattr__ = __getitem__
+    def __getattr__(self, name: str) -> Any:
+        """
+        Overwrite ``__getattr__`` to provide dot access
+        """
+        return self.__getitem__(name)
+
+    def __setattr__(self, key: str, value: Any) -> None:
+        """
+        Overwrite ``__setattr__`` to provide dot access
+        """
+        self.__setitem__(key, value)
 
 
-def update(d: dict, u: Mapping) -> dict:
+def update(d: Dict[Any, Any],
+           u: Mapping[Any, Any]) -> Dict[Any, Any]:
     for k, v in u.items():
         if isinstance(v, collections.abc.Mapping):
             r = update(d.get(k, {}), v)

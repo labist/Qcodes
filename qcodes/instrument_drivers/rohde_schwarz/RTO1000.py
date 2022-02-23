@@ -2,61 +2,69 @@
 # for firmware 3.65, 2017
 
 import logging
-import warnings
 import time
+import warnings
+from typing import Any, Optional
 
 import numpy as np
-from distutils.version import LooseVersion
+from packaging import version
 
 from qcodes import Instrument
-from qcodes.instrument.visa import VisaInstrument
 from qcodes.instrument.channel import InstrumentChannel
-from qcodes.utils import validators as vals
 from qcodes.instrument.parameter import ArrayParameter
+from qcodes.instrument.visa import VisaInstrument
+from qcodes.utils import validators as vals
 from qcodes.utils.helpers import create_on_off_val_mapping
 
 log = logging.getLogger(__name__)
 
 
 class ScopeTrace(ArrayParameter):
-
-    def __init__(self, name: str, instrument: InstrumentChannel,
-                 channum: int) -> None:
+    def __init__(
+        self, name: str, instrument: InstrumentChannel, channum: int, **kwargs: Any
+    ) -> None:
         """
         The ScopeTrace parameter is attached to a channel of the oscilloscope.
 
         For now, we only support reading out the entire trace.
         """
-        super().__init__(name=name,
-                         shape=(1,),
-                         label='Voltage',  # TODO: Is this sometimes dbm?
-                         unit='V',
-                         setpoint_names=('Time',),
-                         setpoint_labels=('Time',),
-                         setpoint_units=('s',),
-                         docstring='Holds scope trace')
+        super().__init__(
+            name=name,
+            shape=(1,),
+            label="Voltage",  # TODO: Is this sometimes dbm?
+            unit="V",
+            setpoint_names=("Time",),
+            setpoint_labels=("Time",),
+            setpoint_units=("s",),
+            docstring="Holds scope trace",
+            snapshot_value=False,
+            instrument=instrument,
+            **kwargs,
+        )
 
         self.channel = instrument
         self.channum = channum
+        self._trace_ready = False
 
     def prepare_trace(self) -> None:
         """
         Prepare the scope for returning data, calculate the setpoints
         """
+        assert self.root_instrument is not None
+
         # We always use 16 bit integers for the data format
-        self.channel._parent.dataformat('INT,16')
+        self.root_instrument.dataformat("INT,16")
         # ensure little-endianess
-        self.channel._parent.write('FORMat:BORder LSBFirst')
+        self.root_instrument.write("FORMat:BORder LSBFirst")
         # only export y-values
-        self.channel._parent.write('EXPort:WAVeform:INCXvalues OFF')
+        self.root_instrument.write("EXPort:WAVeform:INCXvalues OFF")
         # only export one channel
-        self.channel._parent.write('EXPort:WAVeform:MULTichannel OFF')
+        self.root_instrument.write("EXPort:WAVeform:MULTichannel OFF")
 
         # now get setpoints
 
-        hdr = self.channel._parent.ask(f'CHANnel{self.channum}:'
-                                       'DATA:HEADER?')
-        hdr_vals = list(map(float, hdr.split(',')))
+        hdr = self.root_instrument.ask(f"CHANnel{self.channum}:" "DATA:HEADER?")
+        hdr_vals = list(map(float, hdr.split(",")))
         t_start = hdr_vals[0]
         t_stop = hdr_vals[1]
         no_samples = int(hdr_vals[2])
@@ -76,14 +84,15 @@ class ScopeTrace(ArrayParameter):
 
         self._trace_ready = True
         # we must ensure that all this took effect before proceeding
-        self.channel._parent.ask('*OPC?')
+        self.root_instrument.ask("*OPC?")
 
     def get_raw(self) -> np.ndarray:
         """
         Returns a trace
         """
 
-        instr = self.channel._parent
+        instr = self.root_instrument
+        assert instr is not None
 
         if not self._trace_ready:
             raise ValueError('Trace not ready! Please call '
@@ -113,10 +122,9 @@ class ScopeTrace(ArrayParameter):
         dataformat = instr.dataformat.get_latest()
 
         if dataformat == 'INT,8':
-            int_vals = np.fromstring(raw_vals, dtype=np.int8, count=no_points)
+            int_vals = np.frombuffer(raw_vals, dtype=np.int8, count=no_points)
         else:
-            int_vals = np.fromstring(raw_vals, dtype=np.int16,
-                                     count=no_points//2)
+            int_vals = np.frombuffer(raw_vals, dtype=np.int16, count=no_points // 2)
 
         # now the integer values must be converted to physical
         # values
@@ -435,10 +443,10 @@ class RTO1000(VisaInstrument):
     """
 
     def __init__(self, name: str, address: str,
-                 model: str = None, timeout: float = 5.,
+                 model: Optional[str] = None, timeout: float = 5.,
                  HD: bool = True,
                  terminator: str = '\n',
-                 **kwargs) -> None:
+                 **kwargs: Any) -> None:
         """
         Args:
             name: name of the instrument
@@ -458,13 +466,18 @@ class RTO1000(VisaInstrument):
         # model number can NOT be queried from the instrument
         # (at least fails with RTO1024, fw 2.52.1.1), so in that case
         # the user must provide the model manually.
-        firmware_version = self.get_idn()['firmware']
+        firmware_version_str = self.get_idn()["firmware"]
+        if firmware_version_str is None:
+            raise RuntimeError("Could not determine firmware version of RTO1000.")
+        firmware_version = version.parse(firmware_version_str)
 
-        if LooseVersion(firmware_version) < LooseVersion('3'):
-            log.warning('Old firmware version detected. This driver may '
-                        'not be compatible. Please upgrade your firmware.')
+        if firmware_version < version.parse("3"):
+            log.warning(
+                "Old firmware version detected. This driver may "
+                "not be compatible. Please upgrade your firmware."
+            )
 
-        if LooseVersion(firmware_version) >= LooseVersion('3.65'):
+        if firmware_version >= version.parse("3.65"):
             # strip just in case there is a newline character at the end
             self.model = self.ask('DIAGnostic:SERVice:WFAModel?').strip()
             if model is not None and model != self.model:
@@ -675,8 +688,8 @@ class RTO1000(VisaInstrument):
 
         # Add the channels to the instrument
         for ch in range(1, self.num_chans+1):
-            chan = ScopeChannel(self, 'channel{}'.format(ch), ch)
-            self.add_submodule('ch{}'.format(ch), chan)
+            chan = ScopeChannel(self, f'channel{ch}', ch)
+            self.add_submodule(f'ch{ch}', chan)
 
         for measId in range(1, self.num_meas+1):
             measCh = ScopeMeasurement(self, f'measurement{measId}', measId)
@@ -722,14 +735,14 @@ class RTO1000(VisaInstrument):
 
     # Specialised set/get functions
 
-    def _set_hd_mode(self, value) -> None:
+    def _set_hd_mode(self, value: int) -> None:
         """
         Set/unset the high def mode
         """
         self._make_traces_not_ready()
         self.write(f'HDEFinition:STAte {value}')
 
-    def _set_timebase_range(self, value) -> None:
+    def _set_timebase_range(self, value: float) -> None:
         """
         Set the full range of the timebase
         """
@@ -738,7 +751,7 @@ class RTO1000(VisaInstrument):
 
         self.write(f'TIMebase:RANGe {value}')
 
-    def _set_timebase_scale(self, value) -> None:
+    def _set_timebase_scale(self, value: float) -> None:
         """
         Set the length of one horizontal division.
         """
@@ -747,7 +760,7 @@ class RTO1000(VisaInstrument):
 
         self.write(f'TIMebase:SCALe {value}')
 
-    def _set_timebase_position(self, value) -> None:
+    def _set_timebase_position(self, value: float) -> None:
         """
         Set the horizontal position.
         """
@@ -763,7 +776,7 @@ class RTO1000(VisaInstrument):
         self.ch3.trace._trace_ready = False
         self.ch4.trace._trace_ready = False
 
-    def _set_trigger_level(self, value):
+    def _set_trigger_level(self, value: float) -> None:
         """
         Set the trigger level on the currently used trigger source
         channel.
@@ -773,8 +786,10 @@ class RTO1000(VisaInstrument):
         # not touch the front panel of an oscilloscope.
         source = trans[self.trigger_source.get()]
         if source != 5:
-            v_range = self.submodules[f'ch{source}'].range()
-            offset = self.submodules[f'ch{source}'].offset()
+            submodule = self.submodules[f'ch{source}']
+            assert isinstance(submodule, InstrumentChannel)
+            v_range = submodule.range()
+            offset = submodule.offset()
 
             if (value < -v_range/2 + offset) or (value > v_range/2 + offset):
                 raise ValueError('Trigger level outside channel range.')

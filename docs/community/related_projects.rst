@@ -73,15 +73,24 @@ and the documentation can be found
 `here <https://github.com/zhinst/zhinst-qcodes/>`__
 
 
-qtt (Qunatum Technology Toolbox)
+PycQED
+------
+
+A Python-based measurement environment for circuit-QED experiments
+by the DiCarlo group at QuTech, Delft University of Technology.
+This module is build on top of QCoDeS and is not intended as a stand-alone package.
+
+`GitHub page with the repository <https://github.com/DiCarloLab-Delft/PycQED_py3>`__
+
+
+qtt (Quantum Technology Toolbox)
 --------------------------------
 
-Quantum Technology Toolbox (QTT) is a Python-based framework 
-for the tuning and calibration of quantum dots and spin qubits. 
-QTT is the framework on which you can base your measurement 
+Quantum Technology Toolbox (QTT) is a Python-based framework
+for the tuning and calibration of quantum dots and spin qubits.
+QTT is the framework on which you can base your measurement
 and analysis scripts. QTT is based on Qcodes and the SciPy ecosystem.
 
 `GitHub page with the repository <https://github.com/QuTech-Delft/qtt>`__
 
 `Docs: <https://qtt.readthedocs.io>`__
-
