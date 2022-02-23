@@ -15,7 +15,7 @@ import numpy as np
 from matplotlib.ticker import FuncFormatter
 
 import qcodes as qc
-from qcodes.dataset.data_set import load_by_run_spec
+from qcodes.dataset.data_set import load_by_id
 from qcodes.dataset.data_set_protocol import DataSetProtocol
 from qcodes.utils.plotting import auto_color_scale_from_config, find_scale_and_prefix
 
