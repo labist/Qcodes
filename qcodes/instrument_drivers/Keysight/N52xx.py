@@ -85,6 +85,7 @@ class PNASweep(ArrayParameter):
         for key, val in new_info.items() :
             setattr( self, key, val )
 
+
 class FormattedSweep(PNASweep):
     """
     Mag will run a sweep, including averaging, before returning data.
@@ -529,13 +530,15 @@ class PNABase(VisaInstrument):
         return self._traces
 
     def _set_span( self, span ) :
-        """ set span. update span for each trace's FormattedSweeps """
+        """ _set_span() update span for each trace's FormattedSweeps """
+        
+        self.write(f'SENS:FREQ:SPAN {span}')
+        
         for t in self.traces :
             for param in t.parameters.values() :
                 if type( param ) is FormattedSweep :
                     param.update_setpoint_info()
 
-        self.write(f'SENS:FREQ:SPAN {span}')
 
     def get_options(self) -> Sequence[str]:
         # Query the instrument for what options are installed
