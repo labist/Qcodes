@@ -28,11 +28,14 @@ class PNASweep(ArrayParameter):
                         **setpoint_info,
                         **kwargs)
 
-    def _get_setpoint_info( self, span ) :
+    def _get_setpoint_info( self, span = None ) :
         ''' Automatically determine setpoint information depending on if we're in zero span.
         Returns a dictionary with setpoint_names, setpoint_labels, setpoint_units which can
         then be passed on to super().__init__
         '''
+        if span is None:
+            span = self._instrument.root_instrument.span()
+
         if span == 0 :
             setpoint_info = { 'setpoint_names' : ('time',),
                 'setpoint_labels' : ('Time',),
@@ -74,6 +77,14 @@ class PNASweep(ArrayParameter):
     def setpoints(self, val: Sequence[int]) -> None:
         pass
 
+    def update_setpoint_info( self ) :
+        """ update setpoint labels
+        (zero span should be time)
+        """
+        new_info = self._get_setpoint_info()
+        for key, val in new_info.items() :
+            setattr( self, key, val )
+
 class FormattedSweep(PNASweep):
     """
     Mag will run a sweep, including averaging, before returning data.
@@ -98,6 +109,7 @@ class FormattedSweep(PNASweep):
         if self._instrument is None:
             raise RuntimeError("Cannot get data without instrument")
         root_instr = self._instrument.root_instrument
+
         # Check if we should run a new sweep
         if root_instr.auto_sweep():
             prev_mode = self._instrument.run_sweep()
@@ -395,7 +407,7 @@ class PNABase(VisaInstrument):
                            label='Frequency Span',
                            get_cmd='SENS:FREQ:SPAN?',
                            get_parser=float,
-                           set_cmd='SENS:FREQ:SPAN {}',
+                           set_cmd=self._set_span,
                            unit='Hz',
                            vals=Numbers(min_value=0,
                                         max_value=max_freq))
@@ -515,6 +527,15 @@ class PNABase(VisaInstrument):
 
         # Return the list of traces on the instrument
         return self._traces
+
+    def _set_span( self, span ) :
+        """ set span. update span for each trace's FormattedSweeps """
+        for t in self.traces :
+            for param in t.parameters.values() :
+                if type( param ) is FormattedSweep :
+                    param.update_setpoint_info()
+
+        self.write(f'SENS:FREQ:SPAN {span}')
 
     def get_options(self) -> Sequence[str]:
         # Query the instrument for what options are installed
