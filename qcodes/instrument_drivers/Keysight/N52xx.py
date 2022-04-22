@@ -111,12 +111,7 @@ class FormattedSweep(ParameterWithSetpoints):
     def get_raw(self) -> Sequence[float]:
         if self.instrument is None:
             raise RuntimeError("Cannot get data without instrument")
-<<<<<<< HEAD
         root_instr = self.instrument.root_instrument
-=======
-        root_instr = self._instrument.root_instrument
-
->>>>>>> master
         # Check if we should run a new sweep
         if root_instr.auto_sweep():
             prev_mode = self.instrument.run_sweep()
