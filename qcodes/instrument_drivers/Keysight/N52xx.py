@@ -111,7 +111,12 @@ class FormattedSweep(ParameterWithSetpoints):
     def get_raw(self) -> Sequence[float]:
         if self.instrument is None:
             raise RuntimeError("Cannot get data without instrument")
+<<<<<<< HEAD
         root_instr = self.instrument.root_instrument
+=======
+        root_instr = self._instrument.root_instrument
+
+>>>>>>> master
         # Check if we should run a new sweep
         if root_instr.auto_sweep():
             prev_mode = self.instrument.run_sweep()
@@ -426,7 +431,7 @@ class PNABase(VisaInstrument):
                            label='Frequency Span',
                            get_cmd='SENS:FREQ:SPAN?',
                            get_parser=float,
-                           set_cmd='SENS:FREQ:SPAN {}',
+                           set_cmd=self._set_span,
                            unit='Hz',
                            vals=Numbers(min_value=0,
                                         max_value=max_freq))
@@ -589,6 +594,17 @@ class PNABase(VisaInstrument):
 
         # Return the list of traces on the instrument
         return self._traces
+
+    def _set_span( self, span ) :
+        """ _set_span() update span for each trace's FormattedSweeps """
+        
+        self.write(f'SENS:FREQ:SPAN {span}')
+        
+        for t in self.traces :
+            for param in t.parameters.values() :
+                if type( param ) is FormattedSweep :
+                    param.update_setpoint_info()
+
 
     def get_options(self) -> Sequence[str]:
         # Query the instrument for what options are installed
