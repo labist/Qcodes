@@ -419,8 +419,16 @@ class PNABase(VisaInstrument):
                            get_parser=float,
                            set_cmd='SENS:FREQ:SPAN {}',
                            unit='Hz',
-                           vals=Numbers(min_value=min_freq,
+                           vals=Numbers(min_value=0,
                                         max_value=max_freq))
+
+        self.add_parameter('rf_out',
+                    label='RF Out',
+                    get_cmd="OUTP:STAT?",
+                    set_cmd="OUTP:STAT {}",
+                    val_mapping={True: '1', False: '0'})
+
+
         self.add_parameter('cw',
                            label='CW Frequency',
                            get_cmd='SENS:FREQ:CW?',
