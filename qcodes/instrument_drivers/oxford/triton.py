@@ -448,7 +448,9 @@ class Triton300(Triton):
                     label='PID temperature setpoint',
                     unit='K',
                     get_cmd=partial(self._get_control_param, 'TSET'),
-                    set_cmd=self._set_pid_setpoint_autorange )
+                    set_cmd=self._set_pid_setpoint_autorange,
+                    vals=Numbers(0,10)
+        )
 
     def _set_pid_setpoint_autorange(self, temp):
         ''' Set the PID setpoint, automatically adjusting the heater range
