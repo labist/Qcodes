@@ -37,8 +37,7 @@ class PNAAxisParameter(Parameter):
         """
         Return the axis values, with values retrieved from the parent instrument
         """
-        # pylint: disable=line-too-long
-        return np.linspace(self._startparam(), self._stopparam(), self._pointsparam())  # type: ignore
+        return np.linspace(self._startparam(), self._stopparam(), self._pointsparam())
 
 
 class PNALogAxisParamter(PNAAxisParameter):
@@ -47,8 +46,7 @@ class PNALogAxisParamter(PNAAxisParameter):
         Return the axis values on a log scale, with values retrieved from
         the parent instrument
         """
-        # pylint: disable=line-too-long
-        return np.geomspace(self._startparam(), self._stopparam(), self._pointsparam())  # type: ignore
+        return np.geomspace(self._startparam(), self._stopparam(), self._pointsparam())
 
 
 class PNATimeAxisParameter(PNAAxisParameter):
@@ -57,7 +55,7 @@ class PNATimeAxisParameter(PNAAxisParameter):
         Return the axis values on a time scale, with values retrieved from
         the parent instrument
         """
-        return np.linspace(0, self._stopparam(), self._pointsparam())  # type: ignore
+        return np.linspace(0, self._stopparam(), self._pointsparam())
 
 
 class FormattedSweep(ParameterWithSetpoints):
@@ -89,7 +87,7 @@ class FormattedSweep(ParameterWithSetpoints):
             raise RuntimeError(
                 "Cannot return setpoints if not attached " "to instrument"
             )
-        root_instrument: "PNABase" = self.root_instrument  # type: ignore
+        root_instrument: "PNABase" = self.root_instrument  # type: ignore[assignment]
         sweep_type = root_instrument.sweep_type()
         if sweep_type == "LIN":
             return (root_instrument.frequency_axis,)
@@ -262,7 +260,7 @@ class PNATrace(InstrumentChannel):
             root_instr.group_trigger_count(avg)
             root_instr.sweep_mode('GRO')
         else:
-           root_instr.sweep_mode('SING')
+            root_instr.sweep_mode('SING')
 
         # Once the sweep mode is in hold, we know we're done
         try:
@@ -281,6 +279,7 @@ class PNATrace(InstrumentChannel):
                 msg += "The trigger source is external. Is the trigger " \
                        "source functional?"
             self.log.warning(msg)
+            raise
 
         # Return previous mode, incase we want to restore this
         return prev_mode
@@ -388,14 +387,6 @@ class PNABase(VisaInstrument):
                            set_cmd='SENS:AVER:COUN {:d}',
                            unit='',
                            vals=Numbers(min_value=1, max_value=65536))
-        # RF OUT -> Turns the VNA ON/OFF
-
-        self.add_parameter('rf_out',
-                           label='RF Out',
-                           get_cmd="OUTP:STAT?",
-                           set_cmd="OUTP:STAT {}",
-                           val_mapping={True: '1', False: '0'})
-
 
         # Setting frequency range
         self.add_parameter('start',
@@ -430,6 +421,14 @@ class PNABase(VisaInstrument):
                            unit='Hz',
                            vals=Numbers(min_value=0,
                                         max_value=max_freq))
+
+        self.add_parameter('rf_out',
+                    label='RF Out',
+                    get_cmd="OUTP:STAT?",
+                    set_cmd="OUTP:STAT {}",
+                    val_mapping={True: '1', False: '0'})
+
+
         self.add_parameter('cw',
                            label='CW Frequency',
                            get_cmd='SENS:FREQ:CW?',
