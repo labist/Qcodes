@@ -226,6 +226,8 @@ def plot_dataset(
 
             if plottype == '1D_line':
                 # sort for plotting
+                xpoints = xpoints.reshape(-1) # reshape nested stuff
+                ypoints = ypoints.reshape(-1)
                 order = xpoints.argsort()
                 xpoints = xpoints[order]
                 ypoints = ypoints[order]

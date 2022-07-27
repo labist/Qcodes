@@ -273,14 +273,14 @@ def get_1D_plottype(xpoints: np.ndarray, ypoints: np.ndarray) -> str:
         return datatype_from_setpoints_1d(xpoints)
 
 
-def datatype_from_setpoints_1d(setpoints: np.ndarray) -> str:
+def datatype_from_setpoints_1d(setpoints: np.ndarray ) -> str:
     """
     Figure out what type of visualisation is proper for the
     provided setpoints.
 
     The type is:
-        * '1D_point' (scatter plot) when all setpoints are identical
-        * '1D_line' otherwise
+        * '1D_point' (scatter plot) when all number of points < threshold
+        * '1D_line' if number of points >= thresholdd
 
     Args:
         setpoints: The x-axis values
@@ -288,7 +288,9 @@ def datatype_from_setpoints_1d(setpoints: np.ndarray) -> str:
     Returns:
         A string representing the plot type as described above
     """
-    if np.allclose(setpoints, setpoints[0]):
+    threshold = 25
+    npts = setpoints.size 
+    if npts < threshold :
         return '1D_point'
     else:
         return '1D_line'
