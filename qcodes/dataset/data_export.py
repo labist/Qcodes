@@ -288,7 +288,7 @@ def datatype_from_setpoints_1d(setpoints: np.ndarray ) -> str:
     Returns:
         A string representing the plot type as described above
     """
-    threshold = 25
+    threshold = 5
     npts = setpoints.size 
     if npts < threshold :
         return '1D_point'
