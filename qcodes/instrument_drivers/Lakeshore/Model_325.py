@@ -459,6 +459,8 @@ class Model_325_Heater(InstrumentChannel):
             "heater_output",
             get_cmd=f"HTR? {self._loop}",
             get_parser=float,
+            set_cmd=f"HTR {self._loop}, {{}}",
+            vals=Numbers(0, 100),
             label='Heater Output',
             unit="%"
         )
