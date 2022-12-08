@@ -243,6 +243,22 @@ class PNATrace(InstrumentChannel):
                            unit='LinMag',
                            parameter_class=FormattedSweep,
                            vals=Arrays(shape=(self.parent.points,)))
+        self.add_parameter('ave_magnitude',
+                            unit='dB',
+                            label='$\\langle |S| \\rangle$',
+                            get_cmd=self._get_avemag)
+        self.add_parameter('ave_phase',
+                            unit='deg',
+                            label='$\\langle \angle{S} \\rangle$',
+                            get_cmd=lambda : np.mean(self.phase()) )
+
+    def _get_avemag(self) -> float:
+        """ get average magntiude """
+        mag_db = self.magnitude()
+        lin = np.power(10, mag_db/20)
+        averaged = np.mean(lin)
+        return 20 * np.log10(averaged)
+
 
     def run_sweep(self) -> str:
         """
