@@ -246,11 +246,13 @@ class PNATrace(InstrumentChannel):
         self.add_parameter('ave_magnitude',
                             unit='dB',
                             label='$\\langle |S| \\rangle$',
-                            get_cmd=self._get_avemag)
+                            get_cmd=self._get_avemag,
+                            snapshot_exclude=True)
         self.add_parameter('ave_phase',
                             unit='deg',
                             label='$\\langle \angle{S} \\rangle$',
-                            get_cmd=lambda : np.mean(self.phase()) )
+                            get_cmd=lambda : np.mean(self.phase()),
+                            snapshot_exclude=True)
 
     def _get_avemag(self) -> float:
         """ get average magntiude """
