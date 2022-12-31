@@ -626,9 +626,10 @@ def plot_on_a_plain_grid(x: np.ndarray,
         ax.set_yticks(np.arange(len(np.unique(y_strings))))
         ax.set_yticklabels(y_strings)
 
-    if colorbar is not None:
-        colorbar = ax.figure.colorbar(colormesh, ax=ax, cax=colorbar.ax)
-    else:
+    # if colorbar is not None:
+        # colorbar = ax.figure.colorbar(colormesh, ax=ax, cax=colorbar.ax)
+    # else:
+    if colorbar is None :
         colorbar = ax.figure.colorbar(colormesh, ax=ax)
 
     if z_is_stringy:
