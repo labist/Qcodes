@@ -796,30 +796,36 @@ class SR830(VisaInstrument):
         else:
             return self._CURR_TO_N[s]
 
-    def autorange(self, max_changes: int = 1) -> None:
+    def autorange(self, max_changes: int = 1,\
+         min_sensitivity: float = 0) -> None:
         """
         Automatically changes the sensitivity of the instrument according to
         the R value and defined max_changes.
+        Does not set sensitivity below min_sensitivity.
 
         Args:
             max_changes: Maximum number of steps allowing the function to
                 automatically change the sensitivity (default is 1). The actual
                 number of steps needed to change to the optimal sensitivity may
                 be more or less than this maximum.
+            min_sensitivity: New sensitivity cannot be below this value. 
         """
         def autorange_once() -> bool:
             r = self.R()
             sens = self.sensitivity()
-            if r > 0.9 * sens:
+            if r > 0.8 * sens:
                 return self.increment_sensitivity()
-            elif r < 0.1 * sens:
+            elif r < 0.2 * sens and sens > min_sensitivity:
                 return self.decrement_sensitivity()
             return False
 
-        sets = 0
-        while autorange_once() and sets < max_changes:
-            sets += 1
+        while min_sensitivity > self.sensitivity():
+            self.increment_sensitivity()
+
+        counter = max_changes
+        while autorange_once() and counter > 1:
             time.sleep(self.time_constant())
+            counter -= 1
 
     def set_sweep_parameters(self,
                              sweep_param: Parameter,
