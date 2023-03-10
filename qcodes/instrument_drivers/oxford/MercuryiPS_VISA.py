@@ -14,6 +14,15 @@ log = logging.getLogger(__name__)
 visalog = logging.getLogger('qcodes.instrument.visa')
 
 
+# Note very universal solution but should work for our setups
+def _sphere_cylinder_limits(x, y, z, r_max=0, rho_max=0, z_max=0):
+    # check if field is inside sphere
+    in_sphere = x**2 + y**2 + z**2 < r_max ** 2
+    # check is field is inside cylinder
+    in_cylinder = (x**2 + y**2 < rho_max**2) and (z < z_max)
+    return in_sphere or in_cylinder
+
+
 def _response_preparser(bare_resp: str) -> str:
     """
     Pre-parse response from the instrument
@@ -214,9 +223,8 @@ class MercuryiPS(VisaInstrument):
     """
 
     def __init__(self, name: str, address: str, visalib: Optional[str] = None,
-                 field_limits: Optional[Callable[[float,
-                                                  float,
-                                                  float], bool]] = None,
+                 field_limits: Optional[Callable[..., bool]] = _sphere_cylinder_limits,
+                 field_limit_kwargs: Dict[str, Any] = {},
                  **kwargs: Any) -> None:
         """
         Args:
@@ -229,6 +237,9 @@ class MercuryiPS(VisaInstrument):
                 range (T). The function shall take (x, y, z) as an input and
                 return a boolean describing whether that field value is
                 acceptable.
+                todo:
+                    change Callable[..., bool] to Callable[[x, y, z, **kwargs], bool]
+                    if it possible. Looks like there is a solution for that only in python 3.10
         """
 
         if field_limits is not None and not(callable(field_limits)):
@@ -260,8 +271,8 @@ class MercuryiPS(VisaInstrument):
             psu = MercuryWorkerPS(self, psu_name, grp)
             self.add_submodule(psu_name, psu)
 
-        self._field_limits = (field_limits if field_limits else
-                              lambda x, y, z: True)
+        self._field_limits = (lambda x, y, z: field_limits(x, y, z, **field_limit_kwargs)\
+                                   if field_limits else lambda x, y, z: True)
 
         self._target_vector = FieldVector(x=self.GRPX.field(),
                                           y=self.GRPY.field(),
