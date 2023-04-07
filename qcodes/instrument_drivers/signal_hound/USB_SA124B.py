@@ -307,6 +307,12 @@ class SignalHound_USB_SA124B(Instrument):
                            start_freq=1,
                            stepsize=1,
                            parameter_class=FrequencySweep)
+        self.add_parameter('avepower',
+                            label='Average power',
+                            unit='dBm',
+                            get_cmd=self._get_avepower,
+                            set_cmd=False,
+                            docstring="Averages power (trace) in a given span")
         self.add_parameter('power',
                            label='Power',
                            unit='dBm',
@@ -671,6 +677,13 @@ class SignalHound_USB_SA124B(Instrument):
         sleep(2*self.sleep_time.get())
         return max_power
 
+    def _get_avepower(self) -> float:
+        """
+        Returns the averaged power of the trace
+        """
+        p = np.trapz(10 ** (self._get_sweep_data()/10), self._get_freq_axis()) / self.span()
+        return 10 * np.log10(p)
+    
     @staticmethod
     def check_for_error(err: int, source: str,
                         extrainfo: Optional[str] = None) -> None:
