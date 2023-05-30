@@ -283,7 +283,7 @@ class PNATrace(InstrumentChannel):
         # Once the sweep mode is in hold, we know we're done
         try:
             while root_instr.sweep_mode() != 'HOLD':
-                time.sleep(0.1)
+                time.sleep(0.005)
         except KeyboardInterrupt:
             # If the user aborts because (s)he is stuck in the infinite loop
             # mentioned above, provide a hint of what can be wrong.
