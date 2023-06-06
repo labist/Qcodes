@@ -241,14 +241,9 @@ def set_journal_mode(conn: ConnectionPlus, journal_mode: JournalMode) -> None:
     cursor.execute(query)
 
 
-<<<<<<< HEAD
-def initialise_or_create_database_at(db_file_with_abs_path: str,
-                                     journal_mode: Optional[str] = 'DELETE') -> None:
-=======
 def initialise_or_create_database_at(
     db_file_with_abs_path: str | Path, journal_mode: JournalMode | None = "WAL"
 ) -> None:
->>>>>>> qdev/release/v0.38.x
     """
     This function sets up QCoDeS to refer to the given database file. If the
     database file does not exist, it will be initiated.
