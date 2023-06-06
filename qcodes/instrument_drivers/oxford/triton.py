@@ -7,7 +7,7 @@ from traceback import format_exc
 from typing import Any, Dict, List, Optional, Union
 
 from qcodes.instrument import IPInstrument
-from qcodes.validators import Enum, Ints
+from qcodes.validators import Enum, Ints, Numbers
 
 class OxfordTriton(IPInstrument):
     r"""
