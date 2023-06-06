@@ -1,9 +1,5 @@
-from qcodes.instrument.delegate.delegate_instrument import (
-    GroupedParameter,
-    DelegateInstrument
-)
-from qcodes.instrument.delegate.instrument_group import InstrumentGroup
+from qcodes.parameters import GroupedParameter  # noqa: F401
 
-from qcodes.instrument.delegate.delegate_channel_instrument import (
-    DelegateChannelInstrument
-)
+from .delegate_channel_instrument import DelegateChannelInstrument  # noqa: F401
+from .delegate_instrument import DelegateInstrument  # noqa: F401
+from .instrument_group import InstrumentGroup  # noqa: F401

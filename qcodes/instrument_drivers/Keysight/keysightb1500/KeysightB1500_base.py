@@ -1,20 +1,25 @@
 import re
 import textwrap
-from typing import Optional, Union, Dict, List, Tuple, Any, Sequence
 from collections import defaultdict
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
-from qcodes import VisaInstrument, MultiParameter, Parameter
-from qcodes.instrument_drivers.Keysight.keysightb1500.KeysightB1500_module \
-    import _FMTResponse, fmt_response_base_parser, StatusMixin, \
-    convert_dummy_val_to_nan
-from qcodes.utils.helpers import create_on_off_val_mapping
-from .KeysightB1530A import B1530A
-from .KeysightB1520A import B1520A
-from .KeysightB1517A import B1517A, _ParameterWithStatus
-from .KeysightB1511B import B1511B
-from .KeysightB1500_module import B1500Module, parse_module_query_response, \
-    parse_spot_measurement_response
+from qcodes.instrument import VisaInstrument
+from qcodes.parameters import MultiParameter, create_on_off_val_mapping
+
 from . import constants
+from .KeysightB1500_module import (
+    B1500Module,
+    StatusMixin,
+    _FMTResponse,
+    convert_dummy_val_to_nan,
+    fmt_response_base_parser,
+    parse_module_query_response,
+    parse_spot_measurement_response,
+)
+from .KeysightB1511B import KeysightB1511B
+from .KeysightB1517A import KeysightB1517A, _ParameterWithStatus
+from .KeysightB1520A import KeysightB1520A
+from .KeysightB1530A import KeysightB1530A
 from .message_builder import MessageBuilder
 
 
@@ -132,13 +137,13 @@ class KeysightB1500(VisaInstrument):
             A specific instance of :class:`.B1500Module`
         """
         if model == "B1511B":
-            return B1511B(slot_nr=slot_nr, parent=parent, name=name)
+            return KeysightB1511B(slot_nr=slot_nr, parent=parent, name=name)
         elif model == "B1517A":
-            return B1517A(slot_nr=slot_nr, parent=parent, name=name)
+            return KeysightB1517A(slot_nr=slot_nr, parent=parent, name=name)
         elif model == "B1520A":
-            return B1520A(slot_nr=slot_nr, parent=parent, name=name)
+            return KeysightB1520A(slot_nr=slot_nr, parent=parent, name=name)
         elif model == "B1530A":
-            return B1530A(slot_nr=slot_nr, parent=parent, name=name)
+            return KeysightB1530A(slot_nr=slot_nr, parent=parent, name=name)
         else:
             raise NotImplementedError(f"Module type {model} in slot"
                                       f" {slot_nr} not yet supported.")
@@ -444,7 +449,7 @@ class IVSweepMeasurement(MultiParameter, StatusMixin):
         instrument: Instrument to which this parameter communicates to.
     """
 
-    def __init__(self, name: str, instrument: B1517A, **kwargs: Any):
+    def __init__(self, name: str, instrument: KeysightB1517A, **kwargs: Any):
         super().__init__(
             name,
             names=tuple(['param1', 'param2']),
@@ -457,7 +462,7 @@ class IVSweepMeasurement(MultiParameter, StatusMixin):
             instrument=instrument,
             **kwargs)
 
-        self.instrument: B1517A
+        self.instrument: KeysightB1517A
         self.root_instrument: KeysightB1500
 
         self.param1 = _FMTResponse(None, None, None, None)

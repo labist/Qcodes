@@ -10,11 +10,10 @@ from typing import Any, Callable, Dict, List, Optional, Union
 
 import pytest
 
-from qcodes import Instrument
+from qcodes.instrument import Instrument, InstrumentChannel
 from qcodes.instrument.channel import (
     AutoLoadableChannelList,
     AutoLoadableInstrumentChannel,
-    InstrumentChannel,
 )
 
 
@@ -212,7 +211,7 @@ def dummy_instrument():
     instrument.close()
 
 
-def test_sanity(dummy_instrument):
+def test_sanity(dummy_instrument) -> None:
     """
     Test the basic functionality of the auto-loadable channels, without using
     the auto-loadable channels list. Please note that the `channels_to_skip`
@@ -256,7 +255,7 @@ def test_sanity(dummy_instrument):
         # longer be available
 
 
-def test_channels_list(dummy_instrument):
+def test_channels_list(dummy_instrument) -> None:
     """
     Test the auto-loadable channels list
     """
@@ -284,7 +283,7 @@ def test_channels_list(dummy_instrument):
     assert len(dummy_instrument.channels) == 2
 
 
-def test_with_kwargs(dummy_instrument):
+def test_with_kwargs(dummy_instrument) -> None:
     """
     Test keyword arguments given to the add method
     """

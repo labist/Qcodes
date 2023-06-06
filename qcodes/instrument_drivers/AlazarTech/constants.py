@@ -6,9 +6,8 @@ convenient to find the uesful constants here based on the Alazar SDK manual.
 """
 
 
-from typing import NewType, Dict, Tuple
 from enum import IntEnum, IntFlag
-
+from typing import Dict, NewType, Tuple
 
 ReturnCode = NewType('ReturnCode', int)
 
@@ -430,13 +429,13 @@ class Channel(IntFlag):
     F = 0x00000020
     G = 0x00000040
     H = 0x00000080
-    I = 0x00000100
+    I = 0x00000100  # noqa E741
     J = 0x00000200
     K = 0x00000400
     L = 0x00000800
     M = 0x00001000
     N = 0x00002000
-    O = 0x00004000
+    O = 0x00004000  # noqa E741
     P = 0x00008000
 
 

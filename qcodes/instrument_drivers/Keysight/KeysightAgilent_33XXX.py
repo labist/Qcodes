@@ -1,12 +1,11 @@
-from functools import partial
 import logging
-from typing import Union, Any
+from functools import partial
+from typing import Any, Union
 
-from qcodes import VisaInstrument, validators as vals
-from qcodes.instrument.channel import InstrumentChannel
-from qcodes.instrument.base import Instrument
-from qcodes.instrument_drivers.Keysight.private.error_handling import \
-    KeysightErrorQueueMixin
+from qcodes import validators as vals
+from qcodes.instrument import Instrument, InstrumentChannel, VisaInstrument
+
+from .private.error_handling import KeysightErrorQueueMixin
 
 log = logging.getLogger(__name__)
 
@@ -16,9 +15,9 @@ log = logging.getLogger(__name__)
 # 33200, 33500, and 33600
 
 
-class OutputChannel(InstrumentChannel):
+class Keysight33xxxOutputChannel(InstrumentChannel):
     """
-    Class to hold the output channel of a waveform generator
+    Class to hold the output channel of a Keysight 33xxxx waveform generator.
     """
     def __init__(self, parent: Instrument, name: str, channum: int) -> None:
         """
@@ -247,10 +246,13 @@ class OutputChannel(InstrumentChannel):
                            )
 
 
-class SyncChannel(InstrumentChannel):
+OutputChannel = Keysight33xxxOutputChannel
+
+
+class Keysight33xxxSyncChannel(InstrumentChannel):
     """
-    Class to hold the sync output. Has very few parameters for
-    single channel instruments
+    Class to hold the sync output of a Keysight 33xxxx waveform generator.
+    Has very few parameters for single channel instruments.
     """
 
     def __init__(self, parent: Instrument, name: str):
@@ -273,6 +275,9 @@ class SyncChannel(InstrumentChannel):
                                get_cmd='OUTPut:SYNC:SOURce?',
                                val_mapping={1: 'CH1', 2: 'CH2'},
                                vals=vals.Enum(1, 2))
+
+
+SyncChannel = Keysight33xxxSyncChannel
 
 
 class WaveformGenerator_33XXX(KeysightErrorQueueMixin, VisaInstrument):
@@ -318,12 +323,12 @@ class WaveformGenerator_33XXX(KeysightErrorQueueMixin, VisaInstrument):
 
         self.num_channels = no_of_channels[self.model]
 
-        for i in range(1, self.num_channels+1):
-            channel = OutputChannel(self, f'ch{i}', i)
-            self.add_submodule(f'ch{i}', channel)
+        for i in range(1, self.num_channels + 1):
+            channel = Keysight33xxxOutputChannel(self, f"ch{i}", i)
+            self.add_submodule(f"ch{i}", channel)
 
-        sync = SyncChannel(self, 'sync')
-        self.add_submodule('sync', sync)
+        sync = Keysight33xxxSyncChannel(self, "sync")
+        self.add_submodule("sync", sync)
 
         self.add_function('force_trigger', call_cmd='*TRG')
 

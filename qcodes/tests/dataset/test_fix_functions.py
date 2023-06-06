@@ -3,30 +3,31 @@ import os
 
 import pytest
 
-from qcodes.dataset.database_fix_functions import (
-    fix_version_4a_run_description_bug, fix_wrong_run_descriptions)
-import qcodes.tests.dataset
-from qcodes.dataset.sqlite.db_upgrades import get_user_version
-from qcodes.dataset.sqlite.queries import get_run_description
-from qcodes.dataset.descriptions.param_spec import ParamSpec
-import qcodes.dataset.descriptions.versioning.v0 as v0
 import qcodes.dataset.descriptions.versioning.serialization as serial
-from qcodes.dataset.descriptions.versioning.converters import old_to_new
+import qcodes.dataset.descriptions.versioning.v0 as v0
+import qcodes.tests.dataset
+from qcodes.dataset.database_fix_functions import (
+    fix_version_4a_run_description_bug,
+    fix_wrong_run_descriptions,
+)
+from qcodes.dataset.descriptions.param_spec import ParamSpec
 from qcodes.dataset.descriptions.rundescriber import RunDescriber
+from qcodes.dataset.descriptions.versioning.converters import old_to_new
+from qcodes.dataset.sqlite.db_upgrades.version import get_user_version
+from qcodes.dataset.sqlite.queries import get_run_description
+from qcodes.tests.common import skip_if_no_fixtures
 from qcodes.tests.dataset.conftest import temporarily_copied_DB
 
 fixturepath = os.sep.join(qcodes.tests.dataset.__file__.split(os.sep)[:-1])
 fixturepath = os.path.join(fixturepath, 'fixtures')
 
 
-def test_version_4a_bugfix():
+def test_version_4a_bugfix() -> None:
     v4fixpath = os.path.join(fixturepath, 'db_files', 'version4a')
 
     dbname_old = os.path.join(v4fixpath, 'some_runs.db')
 
-    if not os.path.exists(dbname_old):
-        pytest.skip("No db-file fixtures found. You can generate test db-files"
-                    " using the scripts in the legacy_DB_generation folder")
+    skip_if_no_fixtures(dbname_old)
 
     with temporarily_copied_DB(dbname_old, debug=False, version=4) as conn:
 
@@ -49,30 +50,24 @@ def test_version_4a_bugfix():
         assert dd['runs_fixed'] == 0
 
 
-def test_version_4a_bugfix_raises():
+def test_version_4a_bugfix_raises() -> None:
 
     v3fixpath = os.path.join(fixturepath, 'db_files', 'version3')
     dbname_old = os.path.join(v3fixpath, 'some_runs_without_run_description.db')
 
-    if not os.path.exists(dbname_old):
-        pytest.skip(
-            "No db-file fixtures found. You can generate test db-files"
-            " using the scripts in the legacy_DB_generation folder")
+    skip_if_no_fixtures(dbname_old)
 
     with temporarily_copied_DB(dbname_old, debug=False, version=3) as conn:
         with pytest.raises(RuntimeError):
             fix_version_4a_run_description_bug(conn)
 
 
-def test_fix_wrong_run_descriptions():
+def test_fix_wrong_run_descriptions() -> None:
     v3fixpath = os.path.join(fixturepath, 'db_files', 'version3')
 
     dbname_old = os.path.join(v3fixpath, 'some_runs_without_run_description.db')
 
-    if not os.path.exists(dbname_old):
-        pytest.skip(
-            "No db-file fixtures found. You can generate test db-files"
-            " using the scripts in the legacy_DB_generation folder")
+    skip_if_no_fixtures(dbname_old)
 
     def make_ps(n):
         ps = ParamSpec(f'p{n}', label=f'Parameter {n}',
@@ -106,15 +101,13 @@ def test_fix_wrong_run_descriptions():
         assert desc == empty_description
 
 
-def test_fix_wrong_run_descriptions_raises():
+def test_fix_wrong_run_descriptions_raises() -> None:
 
     v4fixpath = os.path.join(fixturepath, 'db_files', 'version4a')
 
     dbname_old = os.path.join(v4fixpath, 'some_runs.db')
 
-    if not os.path.exists(dbname_old):
-        pytest.skip("No db-file fixtures found. You can generate test db-files"
-                    " using the scripts in the legacy_DB_generation folder")
+    skip_if_no_fixtures(dbname_old)
 
     with temporarily_copied_DB(dbname_old, debug=False, version=4) as conn:
         with pytest.raises(RuntimeError):

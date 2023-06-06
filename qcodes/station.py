@@ -2,6 +2,7 @@
 Station objects - collect all the equipment you use to do an experiment.
 """
 
+from __future__ import annotations
 
 import importlib
 import inspect
@@ -18,33 +19,42 @@ from functools import partial
 from io import StringIO
 from pathlib import Path
 from types import ModuleType
-from typing import IO, Any, AnyStr
-from typing import Deque as Tdeque
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union, cast
+from typing import (
+    IO,
+    Any,
+    AnyStr,
+    Dict,
+    Iterable,
+    NoReturn,
+    Sequence,
+    Union,
+    cast,
+    overload,
+)
 
 import jsonschema
-import ruamel.yaml
+import jsonschema.exceptions
 
 import qcodes
-import qcodes.utils.validators as validators
+import qcodes.instrument_drivers
+from qcodes import validators
 from qcodes.instrument.base import Instrument, InstrumentBase
 from qcodes.instrument.channel import ChannelTuple
-from qcodes.instrument.parameter import (
+from qcodes.metadatable import Metadatable, MetadatableWithName
+from qcodes.monitor.monitor import Monitor
+from qcodes.parameters import (
     DelegateParameter,
     ManualParameter,
     Parameter,
-    _BaseParameter,
+    ParameterBase,
 )
-from qcodes.monitor.monitor import Monitor
-from qcodes.utils.deprecate import issue_deprecation_warning
-from qcodes.utils.helpers import (
-    YAML,
+from qcodes.utils import (
     DelegateAttributes,
     checked_getattr,
     get_qcodes_path,
     get_qcodes_user_path,
+    issue_deprecation_warning,
 )
-from qcodes.utils.metadata import Metadatable
 
 log = logging.getLogger(__name__)
 
@@ -62,15 +72,15 @@ def get_config_enable_forced_reconnect() -> bool:
     return qcodes.config["station"]["enable_forced_reconnect"]
 
 
-def get_config_default_folder() -> Optional[str]:
+def get_config_default_folder() -> str | None:
     return qcodes.config["station"]["default_folder"]
 
 
-def get_config_default_file() -> Optional[str]:
+def get_config_default_file() -> str | None:
     return qcodes.config["station"]["default_file"]
 
 
-def get_config_use_monitor() -> Optional[str]:
+def get_config_use_monitor() -> str | None:
     return qcodes.config["station"]["use_monitor"]
 
 
@@ -84,7 +94,7 @@ class ValidationWarning(Warning):
 
 
 class StationConfig(Dict[Any, Any]):
-    def snapshot(self, update: bool = True) -> 'StationConfig':
+    def snapshot(self, update: bool = True) -> StationConfig:
         return self
 
 
@@ -113,7 +123,7 @@ class Station(Metadatable, DelegateAttributes):
 
     """
 
-    default: Optional['Station'] = None
+    default: Station | None = None
     "Class attribute to store the default station."
 
     delegate_attr_dicts = ['components']
@@ -123,14 +133,19 @@ class Station(Metadatable, DelegateAttributes):
     whose keys should be treated as attributes of ``self``.
     """
 
-    config: Optional[StationConfig] = None
+    config: StationConfig | None = None
     """
     A user dict representing the YAML file that the station was loaded from"""
 
-    def __init__(self, *components: Metadatable,
-                 config_file: Optional[Union[str, Sequence[str]]] = None,
-                 use_monitor: Optional[bool] = None, default: bool = True,
-                 update_snapshot: bool = True, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        *components: MetadatableWithName,
+        config_file: str | Sequence[str] | None = None,
+        use_monitor: bool | None = None,
+        default: bool = True,
+        update_snapshot: bool = True,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(**kwargs)
 
         # when a new station is defined, store it in a class variable
@@ -142,14 +157,14 @@ class Station(Metadatable, DelegateAttributes):
         if default:
             Station.default = self
 
-        self.components: Dict[str, Metadatable] = {}
+        self.components: dict[str, MetadatableWithName] = {}
         for item in components:
             self.add_component(item, update_snapshot=update_snapshot)
 
         self.use_monitor = use_monitor
 
-        self._added_methods: List[str] = []
-        self._monitor_parameters: List[Parameter] = []
+        self._added_methods: list[str] = []
+        self._monitor_parameters: list[Parameter] = []
 
         if config_file is None:
             self.config_file = []
@@ -160,12 +175,14 @@ class Station(Metadatable, DelegateAttributes):
 
         self.load_config_files(*self.config_file)
 
-    def snapshot_base(self, update: Optional[bool] = True,
-                      params_to_skip_update: Optional[Sequence[str]] = None
-                      ) -> Dict[Any, Any]:
+    def snapshot_base(
+        self,
+        update: bool | None = True,
+        params_to_skip_update: Sequence[str] | None = None,
+    ) -> dict[Any, Any]:
         """
         State of the station as a JSON-compatible dictionary (everything that
-        the custom JSON encoder class :class:`qcodes.utils.helpers.NumpyJSONEncoder`
+        the custom JSON encoder class :class:`.NumpyJSONEncoder`
         supports).
 
         Note: If the station contains an instrument that has already been
@@ -184,7 +201,7 @@ class Station(Metadatable, DelegateAttributes):
         Returns:
             dict: Base snapshot.
         """
-        snap: Dict[str, Any] = {
+        snap: dict[str, Any] = {
             'instruments': {},
             'parameters': {},
             'components': {},
@@ -215,8 +232,12 @@ class Station(Metadatable, DelegateAttributes):
 
         return snap
 
-    def add_component(self, component: Metadatable, name: Optional[str] = None,
-                      update_snapshot: bool = True) -> str:
+    def add_component(
+        self,
+        component: MetadatableWithName,
+        name: str | None = None,
+        update_snapshot: bool = True,
+    ) -> str:
         """
         Record one component as part of this Station.
 
@@ -234,7 +255,7 @@ class Station(Metadatable, DelegateAttributes):
             if not (isinstance(component, Parameter)
                     and component.snapshot_exclude):
                 component.snapshot(update=update_snapshot)
-        except:
+        except Exception:
             pass
         if name is None:
             name = getattr(component, "name", f"component{len(self.components)}")
@@ -246,7 +267,7 @@ class Station(Metadatable, DelegateAttributes):
         self.components[namestr] = component
         return namestr
 
-    def remove_component(self, name: str) -> Optional[Metadatable]:
+    def remove_component(self, name: str) -> MetadatableWithName | None:
         """
         Remove a component with a given name from this Station.
 
@@ -269,6 +290,60 @@ class Station(Metadatable, DelegateAttributes):
             else:
                 raise e
 
+    def get_component(self, full_name: str) -> MetadatableWithName:
+        """
+        Get a (sub)component with a given name from this Station.
+        The name may be of a component that is a sub-component of another
+        component, e.g. a parameter on an instrument, an instrument module
+        or an top-level instrument.
+
+        Args:
+            full_name: Name of the component.
+
+        Returns:
+            The component with the given name.
+
+        Raises:
+            KeyError: If a component with the given name is not part of this
+                station.
+        """
+
+        def find_component(
+            potential_top_level_name: str, remaining_name_parts: list[str]
+        ) -> tuple[MetadatableWithName, list[str]]:
+            toplevel_component = self.components.get(potential_top_level_name, None)
+            if toplevel_component is not None:
+                return toplevel_component, remaining_name_parts
+            else:
+                if len(remaining_name_parts) < 1:
+                    raise KeyError(f"Component {full_name} is not part of the station")
+                extra = remaining_name_parts.pop()
+                new_potential_name = f"{potential_top_level_name}_{extra}"
+                return find_component(new_potential_name, remaining_name_parts)
+
+        name_parts = full_name.split("_")
+        name_parts.reverse()
+
+        potential_top_level_name = name_parts.pop()
+        toplevel_component, remaining_name_parts = find_component(
+            potential_top_level_name, name_parts
+        )
+        if len(remaining_name_parts) == 0:
+            return toplevel_component
+
+        remaining_name_parts.reverse()
+        remaining_name = "_".join(remaining_name_parts)
+
+        if isinstance(toplevel_component, InstrumentBase):
+            component = toplevel_component.get_component(remaining_name)
+        else:
+            raise KeyError(
+                f"Found component {toplevel_component} but this has no "
+                f"sub-component {remaining_name}."
+            )
+
+        return component
+
     # station['someitem'] and station.someitem are both
     # shortcuts to station.components['someitem']
     # (assuming 'someitem' doesn't have another meaning in Station)
@@ -289,8 +364,7 @@ class Station(Metadatable, DelegateAttributes):
                 self.close_and_remove_instrument(c)
 
     @staticmethod
-    def _get_config_file_path(
-            filename: Optional[str] = None) -> Optional[str]:
+    def _get_config_file_path(filename: str | None = None) -> str | None:
         """
         Methods to get complete path of a provided file. If not able to find
         path then returns None.
@@ -308,7 +382,7 @@ class Station(Metadatable, DelegateAttributes):
                 return p
         return None
 
-    def load_config_file(self, filename: Optional[str] = None) -> None:
+    def load_config_file(self, filename: str | None = None) -> None:
         """
         Loads a configuration from a YAML file. If `filename` is not specified
         the default file name from the qcodes configuration will be used.
@@ -369,7 +443,7 @@ class Station(Metadatable, DelegateAttributes):
             yamls = _merge_yamls(*paths)
             self.load_config(yamls)
 
-    def load_config(self, config: Union[str, IO[AnyStr]]) -> None:
+    def load_config(self, config: str | IO[AnyStr]) -> None:
         """
         Loads a configuration from a supplied string or file/stream handle.
         The string or file/stream is expected to be YAML formatted
@@ -408,7 +482,9 @@ class Station(Metadatable, DelegateAttributes):
 
         # Load template schema, and thereby don't fail on instruments that are
         # not included in the user schema.
-        yaml = YAML().load(config)
+        import ruamel.yaml  # lazy import
+
+        yaml = ruamel.yaml.YAML().load(config)
         with open(SCHEMA_TEMPLATE_PATH) as f:
             schema = json.load(f)
         try:
@@ -423,9 +499,7 @@ class Station(Metadatable, DelegateAttributes):
         update_station_configuration_snapshot()
         update_load_instrument_methods()
 
-    def close_and_remove_instrument(self,
-                                    instrument: Union[Instrument, str]
-                                    ) -> None:
+    def close_and_remove_instrument(self, instrument: Instrument | str) -> None:
         """
         Safely close instrument and remove from station and monitor list.
         """
@@ -450,7 +524,7 @@ class Station(Metadatable, DelegateAttributes):
         loaded configuration file.
 
         Args:
-            identifier: The identfying string that is looked up in the yaml
+            identifier: The identifying string that is looked up in the yaml
                 configuration file, which identifies the instrument to be added.
             revive_instance: If ``True``, try to return an instrument with the
                 specified name instead of closing it and creating a new one.
@@ -489,12 +563,12 @@ class Station(Metadatable, DelegateAttributes):
             init_kwargs['address'] = instr_cfg['address']
         if 'port' in instr_cfg:
             init_kwargs['port'] = instr_cfg['port']
-        # make explicitly passed arguments overide the ones from the config
+        # make explicitly passed arguments override the ones from the config
         # file.
         # We are mutating the dict below
         # so make a copy to ensure that any changes
         # does not leek into the station config object
-        # specifically we may be passing non pickleable
+        # specifically we may be passing non picklable
         # instrument instances via kwargs
         instr_kwargs = deepcopy(init_kwargs)
         instr_kwargs.update(kwargs)
@@ -526,8 +600,10 @@ class Station(Metadatable, DelegateAttributes):
 
             E.g: 'dac.ch1' will return the instance of ch1.
             """
+            levels = identifier.split(".")
+            level = levels[0]
             try:
-                for level in identifier.split('.'):
+                for level in levels:
                     instrument = checked_getattr(
                         instrument, level, (InstrumentBase, ChannelTuple)
                     )
@@ -541,22 +617,21 @@ class Station(Metadatable, DelegateAttributes):
         def resolve_parameter_identifier(
             instrument: ChannelOrInstrumentBase,
             identifier: str
-        ) -> _BaseParameter:
+        ) -> ParameterBase:
             parts = identifier.split('.')
             if len(parts) > 1:
                 instrument = resolve_instrument_identifier(
                     instrument,
                     '.'.join(parts[:-1]))
             try:
-                return checked_getattr(instrument, parts[-1], _BaseParameter)
+                return checked_getattr(instrument, parts[-1], ParameterBase)
             except TypeError:
                 raise RuntimeError(
                     f'Cannot resolve parameter identifier `{identifier}` to '
                     f'a parameter on instrument {instrument!r}.')
 
         def setup_parameter_from_dict(
-            parameter: _BaseParameter,
-            options: Dict[str, Any]
+            parameter: ParameterBase, options: dict[str, Any]
         ) -> None:
             for attr, val in options.items():
                 if attr in PARAMETER_ATTRIBUTES:
@@ -591,19 +666,19 @@ class Station(Metadatable, DelegateAttributes):
                     # when everything else has been set up
                     pass
                 else:
-                    log.warning(f'Attribute {attr} not recognized when '
-                                f'instatiating parameter \"{parameter.name}\"')
-            if 'initial_value' in options:
-                parameter.set(options['initial_value'])
+                    log.warning(
+                        f"Attribute {attr} not recognized when "
+                        f'instantiating parameter "{parameter.name}"'
+                    )
+            if "initial_value" in options:
+                parameter.set(options["initial_value"])
 
         def add_parameter_from_dict(
-            instr: InstrumentBase,
-            name: str,
-            options: Dict[str, Any]
+            instr: InstrumentBase, name: str, options: dict[str, Any]
         ) -> None:
-            # keep the original dictionray intact for snapshot
+            # keep the original dictionary intact for snapshot
             options = copy(options)
-            param_type: type = _BaseParameter
+            param_type: type = ParameterBase
             kwargs = {}
             if 'source' in options:
                 param_type = DelegateParameter
@@ -628,15 +703,50 @@ class Station(Metadatable, DelegateAttributes):
             local_instr = (
                 instr if len(parts) < 2 else
                 resolve_instrument_identifier(instr, '.'.join(parts[:-1])))
+            if isinstance(local_instr, ChannelTuple):
+                raise RuntimeError("A parameter cannot be added to an ChannelTuple")
             add_parameter_from_dict(local_instr, parts[-1], options)
         self.add_component(instr)
         update_monitor()
         return instr
 
-    def load_all_instruments(self,
-                             only_names: Optional[Iterable[str]] = None,
-                             only_types: Optional[Iterable[str]] = None,
-                             ) -> Tuple[str, ...]:
+    @overload
+    def load_all_instruments(
+        self,
+        only_names: None,
+        only_types: Iterable[str],
+    ) -> tuple[str, ...]:
+        ...
+
+    @overload
+    def load_all_instruments(
+        self,
+        only_names: Iterable[str],
+        only_types: None,
+    ) -> tuple[str, ...]:
+        ...
+
+    @overload
+    def load_all_instruments(
+        self,
+        only_names: None,
+        only_types: None,
+    ) -> tuple[str, ...]:
+        ...
+
+    @overload
+    def load_all_instruments(
+        self,
+        only_names: Iterable[str],
+        only_types: Iterable[str],
+    ) -> NoReturn:
+        ...
+
+    def load_all_instruments(
+        self,
+        only_names: Iterable[str] | None = None,
+        only_types: Iterable[str] | None = None,
+    ) -> tuple[str, ...]:
         """
         Load all instruments specified in the loaded YAML station
         configuration.
@@ -689,7 +799,7 @@ class Station(Metadatable, DelegateAttributes):
 
 
 def update_config_schema(
-    additional_instrument_modules: Optional[List[ModuleType]] = None
+    additional_instrument_modules: list[ModuleType] | None = None,
 ) -> None:
     """Update the json schema file 'station.schema.json'.
 
@@ -702,14 +812,16 @@ def update_config_schema(
 
     """
 
-    def instrument_names_from_module(module: ModuleType) -> Tuple[str, ...]:
+    def instrument_names_from_module(module: ModuleType) -> tuple[str, ...]:
         submodules = list(pkgutil.walk_packages(module.__path__, module.__name__ + "."))
         res = set()
         for s in submodules:
-            with suppress(Exception):
+            try:
                 ms = inspect.getmembers(
                     importlib.import_module(s.name),
                     inspect.isclass)
+            except Exception:
+                ms = []
             new_members = [
                 f"{instr[1].__module__}.{instr[1].__name__}"
                 for instr in ms
@@ -720,9 +832,7 @@ def update_config_schema(
         return tuple(res)
 
     def update_schema_file(
-        template_path: str,
-        output_path: str,
-        instrument_names: Tuple[str, ...]
+        template_path: str, output_path: str, instrument_names: tuple[str, ...]
     ) -> None:
         with open(template_path, 'r+') as f:
             data = json.load(f)
@@ -745,16 +855,20 @@ def update_config_schema(
     )
 
 
-def _merge_yamls(*yamls: Union[str, Path]) -> str:
+def _merge_yamls(*yamls: str | Path) -> str:
     """
     Merge multiple station yamls files into one and stores it in the memory.
 
     Args:
         yamls: string or Path to yaml files separated by comma.
     Returns:
-        Full yaml file stored in the memory.
+        Full yaml file stored in the memory. Returns an empty string
+        if no files are given.
     """
+    import ruamel.yaml  # lazy import
 
+    if len(yamls) == 0:
+        return ""
     if len(yamls) == 1:
         with open(yamls[0]) as file:
             content = file.read()
@@ -763,13 +877,14 @@ def _merge_yamls(*yamls: Union[str, Path]) -> str:
     top_key = "instruments"
     yaml = ruamel.yaml.YAML()
 
-    deq: Tdeque[Any] = deque()
+    deq: deque[Any] = deque()
 
     # Load the yaml files and add to deque in reverse entry order
     for filepath in yamls[::-1]:
         with open(filepath) as file_pointer:
             deq.append(yaml.load(file_pointer))
 
+    data1 = None
     # Add the top key entries from filepath n to filepath n-1 to
     # ... filepath 1.
     while len(deq) > 1:
@@ -783,6 +898,7 @@ def _merge_yamls(*yamls: Union[str, Path]) -> str:
                     f"{ ','.join(map(str, yamls))}"
                 )
         deq.popleft()
+    assert data1 is not None
 
     with StringIO() as merged_yaml_stream:
         yaml.dump(data1, merged_yaml_stream)

@@ -1,7 +1,6 @@
 import pytest
 
-from qcodes.instrument_drivers.Keysight.keysightb1500.message_builder import \
-    CommandList
+from qcodes.instrument_drivers.Keysight.keysightb1500.message_builder import CommandList
 
 
 @pytest.fixture
@@ -9,14 +8,14 @@ def uut():
     yield CommandList()
 
 
-def test_append(uut: CommandList):
+def test_append(uut: CommandList) -> None:
     uut.append('a')
     uut.append('b')
 
     assert ['a', 'b'] == uut
 
 
-def test_set_final(uut):
+def test_set_final(uut) -> None:
     uut.append('a')
 
     uut.set_final()
@@ -25,7 +24,7 @@ def test_set_final(uut):
         uut.append('b')
 
 
-def test_clear(uut):
+def test_clear(uut) -> None:
     uut.append('a')
     uut.set_final()
 
@@ -35,7 +34,7 @@ def test_clear(uut):
     assert ['b'] == uut
 
 
-def test_string_representation(uut):
+def test_string_representation(uut) -> None:
     uut.append('a')
     uut.append('b')
 

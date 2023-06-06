@@ -1,2 +1,5 @@
-from .test import test_instruments, test_instrument
-from .devices import VoltageDivider
+from qcodes.parameters.voltage_divider import VoltageDivider  # noqa F401
+
+"""
+Deprecated alias will be removed
+"""

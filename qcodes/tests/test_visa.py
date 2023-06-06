@@ -1,10 +1,13 @@
-import warnings
+import re
+from pathlib import Path
 
 import pytest
-import pyvisa as visa
+import pyvisa
+import pyvisa.constants
+from pytest import FixtureRequest
 
 from qcodes.instrument.visa import VisaInstrument
-from qcodes.utils.validators import Numbers
+from qcodes.validators import Numbers
 
 
 class MockVisa(VisaInstrument):
@@ -15,12 +18,11 @@ class MockVisa(VisaInstrument):
                            set_cmd='STAT:{:.3f}',
                            vals=Numbers(-20, 20))
 
-    def set_address(self, address):
-        self.visa_handle = MockVisaHandle()
-        self.visabackend = self.visalib
+    def _open_resource(self, address: str, visalib):
+        return MockVisaHandle(), visalib
 
 
-class MockVisaHandle(visa.resources.MessageBasedResource):
+class MockVisaHandle(pyvisa.resources.MessageBasedResource):
     """
     mock the API needed for a visa handle that throws lots of errors:
 
@@ -52,7 +54,7 @@ class MockVisaHandle(visa.resources.MessageBasedResource):
             raise ValueError('be more positive!')
 
         if num == 0:
-            raise visa.VisaIOError(visa.constants.VI_ERROR_TMO)
+            raise pyvisa.VisaIOError(pyvisa.constants.VI_ERROR_TMO)
 
         return len(cmd)
 
@@ -107,7 +109,7 @@ def _make_mock_visa():
         mv.close()
 
 
-def test_ask_write_local(mock_visa):
+def test_ask_write_local(mock_visa) -> None:
 
     # test normal ask and write behavior
     mock_visa.state.set(2)
@@ -122,22 +124,22 @@ def test_ask_write_local(mock_visa):
         assert arg in str(e.value)
     assert mock_visa.state.get() == -10  # set still happened
 
-    with pytest.raises(visa.VisaIOError) as e:
+    with pytest.raises(pyvisa.VisaIOError) as ee:
         mock_visa.state.set(0)
     for arg in args2:
-        assert arg in str(e.value)
+        assert arg in str(ee.value)
     assert mock_visa.state.get() == 0
 
     mock_visa.state.set(15)
-    with pytest.raises(ValueError) as e:
+    with pytest.raises(ValueError) as eee:
         mock_visa.state.get()
     for arg in args3:
-        assert arg in str(e.value)
+        assert arg in str(eee.value)
 
 
-def test_visa_backend(mocker, request):
+def test_visa_backend(mocker, request: FixtureRequest) -> None:
 
-    rm_mock = mocker.patch('qcodes.instrument.visa.visa.ResourceManager')
+    rm_mock = mocker.patch("qcodes.instrument.visa.pyvisa.ResourceManager")
 
     address_opened = [None]
 
@@ -165,28 +167,94 @@ def test_visa_backend(mocker, request):
     assert address_opened[0] == 'ASRL2'
     inst2.close()
 
-    # this one raises a warning
-    with pytest.warns(UserWarning, match="use the visalib"):
-        inst3 = MockBackendVisaInstrument('name3', address='ASRL3@py')
-        request.addfinalizer(inst3.close)
-
+    inst3 = MockBackendVisaInstrument("name3", address="ASRL3", visalib="@py")
+    request.addfinalizer(inst3.close)
     assert rm_mock.call_count == 3
-    assert rm_mock.call_args == (('@py',),)
-    assert address_opened[0] == 'ASRL3'
+    assert rm_mock.call_args == (("@py",),)
+    assert address_opened[0] == "ASRL3"
     inst3.close()
 
-    # this one doesn't
-    inst4 = MockBackendVisaInstrument('name4',
-                                      address='ASRL4', visalib='@py')
-    request.addfinalizer(inst4.close)
-    assert rm_mock.call_count == 4
-    assert rm_mock.call_args == (('@py',),)
-    assert address_opened[0] == 'ASRL4'
-    inst4.close()
 
-
-def test_visa_instr_metadata(request):
+def test_visa_instr_metadata(request: FixtureRequest) -> None:
     metadatadict = {'foo': 'bar'}
     mv = MockVisa('Joe', 'none_adress', metadata=metadatadict)
     request.addfinalizer(mv.close)
     assert mv.metadata == metadatadict
+
+
+def test_both_visahandle_and_pyvisa_sim_file_raises() -> None:
+
+    with pytest.raises(
+        RuntimeError,
+        match=re.escape(
+            "It's an error to supply both visalib and pyvisa_sim_file as arguments to a VISA instrument"
+        ),
+    ):
+        MockVisa(
+            name="mock",
+            address="nowhere",
+            visalib="myfile.yaml@sim",
+            pyvisa_sim_file="myfile.yaml",
+        )
+
+
+def test_load_pyvisa_sim_file_implict_module(request: FixtureRequest) -> None:
+    from qcodes.instrument_drivers.AimTTi import AimTTiPL601
+
+    driver = AimTTiPL601(
+        "AimTTi", address="GPIB::1::INSTR", pyvisa_sim_file="AimTTi_PL601P.yaml"
+    )
+    request.addfinalizer(driver.close)
+    assert driver.visabackend == "sim"
+    assert driver.visalib is not None
+    path_str, backend = driver.visalib.split("@")
+    assert backend == "sim"
+    path = Path(path_str)
+    assert path.match("qcodes/instrument/sims/AimTTi_PL601P.yaml")
+
+
+def test_load_pyvisa_sim_file_explicit_module(request: FixtureRequest) -> None:
+    from qcodes.instrument_drivers.AimTTi import AimTTiPL601
+
+    driver = AimTTiPL601(
+        "AimTTi",
+        address="GPIB::1::INSTR",
+        pyvisa_sim_file="qcodes.instrument.sims:AimTTi_PL601P.yaml",
+    )
+    request.addfinalizer(driver.close)
+    assert driver.visabackend == "sim"
+    assert driver.visalib is not None
+    path_str, backend = driver.visalib.split("@")
+    assert backend == "sim"
+    path = Path(path_str)
+    assert path.match("qcodes/instrument/sims/AimTTi_PL601P.yaml")
+
+
+def test_load_pyvisa_sim_file_invalid_file_raises(request: FixtureRequest) -> None:
+    from qcodes.instrument_drivers.AimTTi import AimTTiPL601
+
+    with pytest.raises(
+        FileNotFoundError,
+        match=re.escape(
+            "Pyvisa-sim yaml file could not be found. Trying to load file notafile.yaml from module: qcodes.instrument.sims"
+        ),
+    ):
+        AimTTiPL601(
+            "AimTTi",
+            address="GPIB::1::INSTR",
+            pyvisa_sim_file="qcodes.instrument.sims:notafile.yaml",
+        )
+
+
+def test_load_pyvisa_sim_file_invalid_module_raises(request: FixtureRequest) -> None:
+    from qcodes.instrument_drivers.AimTTi import AimTTiPL601
+
+    with pytest.raises(
+        ModuleNotFoundError,
+        match=re.escape("No module named 'qcodes.instrument.not_a_module'"),
+    ):
+        AimTTiPL601(
+            "AimTTi",
+            address="GPIB::1::INSTR",
+            pyvisa_sim_file="qcodes.instrument.not_a_module:AimTTi_PL601P.yaml",
+        )

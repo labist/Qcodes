@@ -1,5 +1,6 @@
-from qcodes import VisaInstrument, InstrumentChannel
-from typing import Union, List, Tuple, Optional
+from typing import List, Optional, Tuple, Union
+
+from qcodes.instrument import InstrumentChannel, VisaInstrument
 
 
 class KeysightSubModule(InstrumentChannel):
@@ -23,7 +24,7 @@ class KeysightSubModule(InstrumentChannel):
         self.slot = slot
 
 
-class KeysightSwitchMatrixSubModule(KeysightSubModule):
+class Keysight34980ASwitchMatrixSubModule(KeysightSubModule):
     """
     A base class for **Switch Matrix** submodules for the 34980A systems.
     """
@@ -177,3 +178,6 @@ class KeysightSwitchMatrixSubModule(KeysightSubModule):
         channel_list_str = self.to_channel_list(paths)
         messages = self.ask(f"ROUTe:OPEN? {channel_list_str}")
         return [bool(int(message)) for message in messages.split(',')]
+
+
+KeysightSwitchMatrixSubModule = Keysight34980ASwitchMatrixSubModule

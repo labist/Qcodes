@@ -1,19 +1,19 @@
-from typing import Tuple, Union, Dict, Optional, List, Iterable, cast
+from __future__ import annotations
 
-from pathlib import Path
-import gc
 import ast
-
+import gc
+from pathlib import Path
 from sqlite3 import DatabaseError
+from typing import Iterable, Tuple, cast
 
+from qcodes.dataset.data_set import get_guids_by_run_spec
 from qcodes.dataset.guids import validate_guid_format
-from qcodes.dataset.sqlite.queries import get_guids_from_run_spec
 from qcodes.dataset.sqlite.database import connect
 
 
 def guids_from_dbs(
     db_paths: Iterable[Path],
-) -> Tuple[Dict[Path, List[str]], Dict[str, Path]]:
+) -> tuple[dict[Path, list[str]], dict[str, Path]]:
     """
     Extract all guids from the supplied database paths.
 
@@ -26,13 +26,15 @@ def guids_from_dbs(
     """
     dbdict = {}
     for p in db_paths:
+        conn = None
         try:
             conn = connect(str(p))
-            dbdict[p] = get_guids_from_run_spec(conn)
+            dbdict[p] = get_guids_by_run_spec(conn=conn)
         except (RuntimeError, DatabaseError) as e:
             print(e)
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
             gc.collect()
     guiddict = {}
     for dbpath, guids in dbdict.items():
@@ -41,8 +43,8 @@ def guids_from_dbs(
 
 
 def guids_from_dir(
-    basepath: Union[Path, str]
-) -> Tuple[Dict[Path, List[str]], Dict[str, Path]]:
+    basepath: Path | str,
+) -> tuple[dict[Path, list[str]], dict[str, Path]]:
     """
     Recursively find all db files under basepath and extract guids.
 
@@ -56,7 +58,7 @@ def guids_from_dir(
     return guids_from_dbs(Path(basepath).glob("**/*.db"))
 
 
-def guids_from_list_str(s: str) -> Optional[Tuple[str, ...]]:
+def guids_from_list_str(s: str) -> tuple[str, ...] | None:
     """
     Get tuple of guids from a python/json string representation of a list.
 
@@ -96,7 +98,7 @@ def guids_from_list_str(s: str) -> Optional[Tuple[str, ...]]:
     if not hasattr(parsed_expression, 'body'):
         return None
 
-    parsed = cast(ast.Expression, parsed_expression).body
+    parsed = parsed_expression.body
 
     if isinstance(parsed, ast.Str):
         if len(parsed.s) > 0:

@@ -7,14 +7,17 @@ import json
 import logging
 import subprocess
 import sys
-from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
-if sys.version_info >= (3, 8):
-    from importlib.metadata import PackageNotFoundError, distribution, version
+if sys.version_info >= (3, 10):
+    # distribution.name used below became part of the
+    # official api in 3.10
+    from importlib.metadata import distributions
 else:
-    # 3.7 and earlier
-    from importlib_metadata import PackageNotFoundError, distribution, version
+    # 3.9 and earlier
+    from importlib_metadata import distributions
+
+from qcodes.utils.deprecate import deprecate
 
 log = logging.getLogger(__name__)
 
@@ -42,68 +45,20 @@ def is_qcodes_installed_editably() -> Optional[bool]:
     return answer
 
 
+@deprecate("function 'get_qcodes_version'", alternative="qcodes.__version__")
 def get_qcodes_version() -> str:
     """
     Get the version of the currently installed QCoDeS
     """
-    import qcodes
-    package_name = "qcodes"
-
-    qcodes_path = Path(qcodes.__file__).parent
-    if _has_pyproject_toml_and_is_git_repo(qcodes_path.parent):
-        log.info(
-            f"QCoDeS seems to be installed editably trying to look up version "
-            f"from git repo in {qcodes_path}"
-        )
-
-        import versioningit
-
-        __version__ = versioningit.get_version(project_dir=qcodes_path.parent)
-    else:
-        __version__ = version(package_name)
+    from qcodes._version import __version__
     return __version__
-
-
-def get_qcodes_requirements() -> List[str]:
-    """
-    Return a list of the names of the packages that QCoDeS requires
-    """
-    import pkg_resources
-    qc_pkg = distribution('qcodes').requires
-    if qc_pkg is None:
-        return []
-    package_names = [pkg_resources.Requirement.parse(req).unsafe_name for req in qc_pkg]
-
-    return package_names
-
-
-def get_qcodes_requirements_versions() -> Dict[str, str]:
-    """
-    Return a dictionary of the currently installed versions of the packages
-    that QCoDeS requires. The dict maps package name to version string.
-    If an (optional) dependency is not installed the name maps to "Not installed".
-    """
-
-    req_names = get_qcodes_requirements()
-
-    req_versions = {}
-
-    for req in req_names:
-        try:
-            req_versions[req] = version(req)
-        except PackageNotFoundError:
-            req_versions[req] = "Not installed"
-
-    return req_versions
 
 
 def get_all_installed_package_versions() -> Dict[str, str]:
     """
     Return a dictionary of the currently installed packages and their versions.
     """
-    import pkg_resources
-    packages = pkg_resources.working_set
-    return {i.key: i.version for i in packages}
+    return {d.name: d.version for d in distributions()}
 
 
 def convert_legacy_version_to_supported_version(ver: str) -> str:
@@ -112,6 +67,11 @@ def convert_legacy_version_to_supported_version(ver: str) -> str:
     numbers to a regular version string. This is done by replacing a char
     by its ASCII code (using ``ord``). This assumes that the version number
     only uses at most a single char per level and only ASCII chars.
+
+    It also splits off anything that comes after the first ``-`` in the version str.
+
+    This is meant to pass versions like ``'A.02.17-02.40-02.17-00.52-04-01'``
+    primarily used by Keysight instruments.
     """
 
     temp_list = []
@@ -120,10 +80,5 @@ def convert_legacy_version_to_supported_version(ver: str) -> str:
             temp_list.append(str(ord(v.upper())))
         else:
             temp_list.append(v)
-    return "".join(temp_list)
-
-
-def _has_pyproject_toml_and_is_git_repo(path: Path) -> bool:
-    has_pyproject_toml = (path / "pyproject.toml").exists()
-    is_git_repo = (path / ".git").exists()
-    return has_pyproject_toml and is_git_repo
+    temp_str = "".join(temp_list)
+    return temp_str.split("-")[0]

@@ -3,21 +3,23 @@ import logging
 import re
 import time
 import warnings
+from contextlib import ExitStack
 from typing import List
 
 import numpy as np
 import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis.strategies import floats, tuples
+from pytest import FixtureRequest, LogCaptureFixture
 
-import qcodes.instrument.sims as sims
-from qcodes.instrument.base import Instrument
-from qcodes.instrument_drivers.american_magnetics.AMI430_visa import (
-    AMI430,
-    AMI430_3D,
+from qcodes.instrument import Instrument
+from qcodes.instrument_drivers.american_magnetics import (
     AMI430Warning,
+    AMIModel430,
+    AMIModel4303D,
 )
-from qcodes.math_utils.field_vector import FieldVector
+from qcodes.instrument_drivers.american_magnetics.AMI430_visa import AMI430, AMI430_3D
+from qcodes.math_utils import FieldVector
 from qcodes.utils.types import (
     numpy_concrete_floats,
     numpy_concrete_ints,
@@ -34,8 +36,7 @@ field_limit = [
     lambda x, y, z: np.linalg.norm([x, y, z]) < 2,
 ]
 
-# path to the .yaml file containing the simulated instrument
-visalib = sims.__file__.replace("__init__.py", "AMI430.yaml@sim")
+LOG_NAME = "qcodes.instrument.instrument_base"
 
 
 @pytest.fixture(scope="function")
@@ -44,9 +45,15 @@ def magnet_axes_instances():
     Start three mock instruments representing current drivers for the x, y,
     and z directions.
     """
-    mag_x = AMI430("x", address="GPIB::1::INSTR", visalib=visalib, terminator="\n")
-    mag_y = AMI430("y", address="GPIB::2::INSTR", visalib=visalib, terminator="\n")
-    mag_z = AMI430("z", address="GPIB::3::INSTR", visalib=visalib, terminator="\n")
+    mag_x = AMIModel430(
+        "x", address="GPIB::1::INSTR", pyvisa_sim_file="AMI430.yaml", terminator="\n"
+    )
+    mag_y = AMIModel430(
+        "y", address="GPIB::2::INSTR", pyvisa_sim_file="AMI430.yaml", terminator="\n"
+    )
+    mag_z = AMIModel430(
+        "z", address="GPIB::3::INSTR", pyvisa_sim_file="AMI430.yaml", terminator="\n"
+    )
 
     yield mag_x, mag_y, mag_z
 
@@ -55,15 +62,15 @@ def magnet_axes_instances():
     mag_z.close()
 
 
-@pytest.fixture(scope="function")
-def current_driver(magnet_axes_instances):
+@pytest.fixture(name="current_driver", scope="function")
+def _make_current_driver(magnet_axes_instances):
     """
     Instantiate AMI430_3D instrument with the three mock instruments
     representing current drivers for the x, y, and z directions.
     """
     mag_x, mag_y, mag_z = magnet_axes_instances
 
-    driver = AMI430_3D("AMI430-3D", mag_x, mag_y, mag_z, field_limit)
+    driver = AMIModel4303D("AMI430_3D", mag_x, mag_y, mag_z, field_limit)
 
     yield driver
 
@@ -72,7 +79,12 @@ def current_driver(magnet_axes_instances):
 
 @pytest.fixture(scope="function", name="ami430")
 def _make_ami430():
-    mag = AMI430("ami430", address="GPIB::1::INSTR", visalib=visalib, terminator="\n")
+    mag = AMIModel430(
+        "ami430",
+        address="GPIB::1::INSTR",
+        pyvisa_sim_file="AMI430.yaml",
+        terminator="\n",
+    )
     yield mag
     mag.close()
 
@@ -109,16 +121,41 @@ random_coordinates = {
 }
 
 
-def test_instantiation_from_names(magnet_axes_instances, request):
+def test_instantiation_from_names(
+    magnet_axes_instances, request: FixtureRequest
+) -> None:
     """
     Instantiate AMI430_3D instrument from the three mock instruments
     representing current drivers for the x, y, and z directions by their
     names as opposed from their instances.
     """
     mag_x, mag_y, mag_z = magnet_axes_instances
-    request.addfinalizer(AMI430_3D.close_all)
+    request.addfinalizer(AMIModel4303D.close_all)
 
-    driver = AMI430_3D("AMI430-3D", mag_x.name, mag_y.name, mag_z.name, field_limit)
+    driver = AMIModel4303D("AMI430_3D", mag_x.name, mag_y.name, mag_z.name, field_limit)
+
+    assert driver._instrument_x is mag_x
+    assert driver._instrument_y is mag_y
+    assert driver._instrument_z is mag_z
+
+
+def test_instantiation_compat_classes(request: FixtureRequest) -> None:
+    """
+    Test that we can instantiate drivers using the old names
+    """
+    request.addfinalizer(AMIModel4303D.close_all)
+    request.addfinalizer(AMI430_3D.close_all)
+    mag_x = AMI430(
+        "x", address="GPIB::1::INSTR", pyvisa_sim_file="AMI430.yaml", terminator="\n"
+    )
+    mag_y = AMI430(
+        "y", address="GPIB::2::INSTR", pyvisa_sim_file="AMI430.yaml", terminator="\n"
+    )
+    mag_z = AMI430(
+        "z", address="GPIB::3::INSTR", pyvisa_sim_file="AMI430.yaml", terminator="\n"
+    )
+
+    driver = AMI430_3D("AMI430_3D", mag_x.name, mag_y.name, mag_z.name, field_limit)
 
     assert driver._instrument_x is mag_x
     assert driver._instrument_y is mag_y
@@ -126,26 +163,26 @@ def test_instantiation_from_names(magnet_axes_instances, request):
 
 
 def test_instantiation_from_name_of_nonexistent_ami_instrument(
-    magnet_axes_instances, request
-):
+    magnet_axes_instances, request: FixtureRequest
+) -> None:
     mag_x, mag_y, mag_z = magnet_axes_instances
-    request.addfinalizer(AMI430_3D.close_all)
+    request.addfinalizer(AMIModel4303D.close_all)
 
     non_existent_instrument = mag_y.name + "foo"
 
     with pytest.raises(
         KeyError, match=f"with name {non_existent_instrument} does not exist"
     ):
-        AMI430_3D(
-            "AMI430-3D", mag_x.name, non_existent_instrument, mag_z.name, field_limit
+        AMIModel4303D(
+            "AMI430_3D", mag_x.name, non_existent_instrument, mag_z.name, field_limit
         )
 
 
 def test_instantiation_from_name_of_existing_non_ami_instrument(
-    magnet_axes_instances, request
-):
+    magnet_axes_instances, request: FixtureRequest
+) -> None:
     mag_x, mag_y, mag_z = magnet_axes_instances
-    request.addfinalizer(AMI430_3D.close_all)
+    request.addfinalizer(AMIModel4303D.close_all)
 
     non_ami_existing_instrument = Instrument("foo")
 
@@ -153,12 +190,12 @@ def test_instantiation_from_name_of_existing_non_ami_instrument(
         TypeError,
         match=re.escape(
             f"Instrument {non_ami_existing_instrument.name} is "
-            f"{type(non_ami_existing_instrument)} but {AMI430} "
+            f"{type(non_ami_existing_instrument)} but {AMIModel430} "
             f"was requested"
         ),
     ):
-        AMI430_3D(
-            "AMI430-3D",
+        AMIModel4303D(
+            "AMI430_3D",
             mag_x.name,
             non_ami_existing_instrument.name,
             mag_z.name,
@@ -166,25 +203,31 @@ def test_instantiation_from_name_of_existing_non_ami_instrument(
         )
 
 
-def test_instantiation_from_badly_typed_argument(magnet_axes_instances, request):
+def test_instantiation_from_badly_typed_argument(
+    magnet_axes_instances, request: FixtureRequest
+) -> None:
     mag_x, mag_y, mag_z = magnet_axes_instances
-    request.addfinalizer(AMI430_3D.close_all)
+    request.addfinalizer(AMIModel4303D.close_all)
 
     badly_typed_instrument_z_argument = 123
 
     with pytest.raises(ValueError, match="instrument_z argument is neither of those"):
-        AMI430_3D(
-            "AMI430-3D",
+        AMIModel4303D(
+            "AMI430_3D",
             mag_x.name,
             mag_y,
-            badly_typed_instrument_z_argument,
+            badly_typed_instrument_z_argument,  # type: ignore[arg-type]
             field_limit,
         )
 
 
 @given(set_target=random_coordinates["cartesian"])
-@settings(max_examples=10, suppress_health_check=(HealthCheck.function_scoped_fixture,))
-def test_cartesian_sanity(current_driver, set_target):
+@settings(
+    max_examples=10,
+    suppress_health_check=(HealthCheck.function_scoped_fixture,),
+    deadline=None,
+)
+def test_cartesian_sanity(current_driver, set_target) -> None:
     """
     A sanity check to see if the driver remember vectors in any random
     configuration in cartesian coordinates
@@ -202,8 +245,12 @@ def test_cartesian_sanity(current_driver, set_target):
 
 
 @given(set_target=random_coordinates["spherical"])
-@settings(max_examples=10, suppress_health_check=(HealthCheck.function_scoped_fixture,))
-def test_spherical_sanity(current_driver, set_target):
+@settings(
+    max_examples=10,
+    suppress_health_check=(HealthCheck.function_scoped_fixture,),
+    deadline=None,
+)
+def test_spherical_sanity(current_driver, set_target) -> None:
     """
     A sanity check to see if the driver remember vectors in any random
     configuration in spherical coordinates
@@ -221,8 +268,12 @@ def test_spherical_sanity(current_driver, set_target):
 
 
 @given(set_target=random_coordinates["cylindrical"])
-@settings(max_examples=10, suppress_health_check=(HealthCheck.function_scoped_fixture,))
-def test_cylindrical_sanity(current_driver, set_target):
+@settings(
+    max_examples=10,
+    suppress_health_check=(HealthCheck.function_scoped_fixture,),
+    deadline=None,
+)
+def test_cylindrical_sanity(current_driver, set_target) -> None:
     """
     A sanity check to see if the driver remember vectors in any random
     configuration in cylindrical coordinates
@@ -240,8 +291,12 @@ def test_cylindrical_sanity(current_driver, set_target):
 
 
 @given(set_target=random_coordinates["cartesian"])
-@settings(max_examples=10, suppress_health_check=(HealthCheck.function_scoped_fixture,))
-def test_cartesian_setpoints(current_driver, set_target):
+@settings(
+    max_examples=10,
+    suppress_health_check=(HealthCheck.function_scoped_fixture,),
+    deadline=None,
+)
+def test_cartesian_setpoints(current_driver, set_target) -> None:
     """
     Check that the individual x, y, z instruments are getting the set
     points as intended. This test is very similar to the sanity test, but
@@ -261,8 +316,12 @@ def test_cartesian_setpoints(current_driver, set_target):
 
 
 @given(set_target=random_coordinates["spherical"])
-@settings(max_examples=10, suppress_health_check=(HealthCheck.function_scoped_fixture,))
-def test_spherical_setpoints(current_driver, set_target):
+@settings(
+    max_examples=10,
+    suppress_health_check=(HealthCheck.function_scoped_fixture,),
+    deadline=None,
+)
+def test_spherical_setpoints(current_driver, set_target) -> None:
     """
     Check that the individual x, y, z instruments are getting the set
     points as intended. This test is very similar to the sanity test, but
@@ -288,7 +347,7 @@ def test_spherical_setpoints(current_driver, set_target):
     deadline=500,
     suppress_health_check=(HealthCheck.function_scoped_fixture,),
 )
-def test_cylindrical_setpoints(current_driver, set_target):
+def test_cylindrical_setpoints(current_driver, set_target) -> None:
     """
     Check that the individual x, y, z instruments are getting the set
     points as intended. This test is very similar to the sanity test, but
@@ -314,7 +373,7 @@ def test_cylindrical_setpoints(current_driver, set_target):
     deadline=500,
     suppress_health_check=(HealthCheck.function_scoped_fixture,),
 )
-def test_measured(current_driver, set_target):
+def test_measured(current_driver, set_target) -> None:
     """
     Simply call the measurement methods and verify that no exceptions
     are raised.
@@ -369,7 +428,7 @@ def get_ramp_down_order(messages: List[str]) -> List[str]:
     return order
 
 
-def test_ramp_down_first(current_driver, caplog):
+def test_ramp_down_first(current_driver, caplog: LogCaptureFixture) -> None:
     """
     To prevent quenching of the magnets, we need the driver to always
     be within the field limits. Part of the strategy of making sure
@@ -385,9 +444,7 @@ def test_ramp_down_first(current_driver, caplog):
     # We begin with ramping down x first while ramping up y and z
     delta = np.array([-0.1, 0.1, 0.1])
 
-    log_name = "qcodes.instrument.base"
-
-    with caplog.at_level(logging.DEBUG, logger=log_name):
+    with caplog.at_level(logging.DEBUG, logger=LOG_NAME):
         for count, ramp_down_name in enumerate(names):
             # The second iteration will ramp down y while ramping up x and z.
             set_point += np.roll(delta, count)
@@ -407,7 +464,7 @@ def test_ramp_down_first(current_driver, caplog):
             assert order[0][0] == names[count]
 
 
-def test_field_limit_exception(current_driver):
+def test_field_limit_exception(current_driver) -> None:
     """
     Test that an exception is raised if we intentionally set the field
     beyond the limits. Together with the no_test_ramp_down_first test
@@ -437,7 +494,7 @@ def test_field_limit_exception(current_driver):
             assert belief
 
 
-def test_cylindrical_poles(current_driver):
+def test_cylindrical_poles(current_driver) -> None:
     """
     Test that the phi coordinate is remembered even if the resulting
     vector is equivalent to the null vector
@@ -455,7 +512,7 @@ def test_cylindrical_poles(current_driver):
     assert np.allclose([rho_m, phi_m, z_m], [rho, phi, z])
 
 
-def test_spherical_poles(current_driver):
+def test_spherical_poles(current_driver) -> None:
     """
     Test that the theta and phi coordinates are remembered even if the
     resulting vector is equivalent to the null vector
@@ -473,7 +530,7 @@ def test_spherical_poles(current_driver):
     assert np.allclose([field_m, theta_m, phi_m], [field, theta, phi])
 
 
-def test_ramp_rate_exception(current_driver):
+def test_ramp_rate_exception(current_driver) -> None:
     """
     Test that an exception is raised if we try to set the ramp rate
     to a higher value than is allowed
@@ -486,7 +543,171 @@ def test_ramp_rate_exception(current_driver):
         ix.ramp_rate(target_ramp_rate)
 
 
-def test_reducing_field_ramp_limit_reduces_a_higher_ramp_rate(ami430):
+def test_simultaneous_ramp_mode_does_not_reset_individual_axis_ramp_rates_if_nonblocking_ramp(
+    current_driver, caplog: LogCaptureFixture, request: FixtureRequest
+) -> None:
+    ami3d = current_driver
+
+    ami3d.cartesian((0.0, 0.0, 0.0))
+
+    restore_parameters_stack = ExitStack()
+    request.addfinalizer(restore_parameters_stack.close)
+
+    restore_parameters_stack.callback(ami3d.cartesian, (0.0, 0.0, 0.0))
+
+    restore_parameters_stack.enter_context(
+        ami3d._instrument_x.ramp_rate.restore_at_exit()
+    )
+    restore_parameters_stack.enter_context(
+        ami3d._instrument_y.ramp_rate.restore_at_exit()
+    )
+    restore_parameters_stack.enter_context(
+        ami3d._instrument_z.ramp_rate.restore_at_exit()
+    )
+
+    restore_parameters_stack.enter_context(ami3d.ramp_mode.set_to("simultaneous"))
+
+    restore_parameters_stack.enter_context(ami3d.block_during_ramp.set_to(False))
+
+    # Set individual ramp rates to known values
+    ami3d._instrument_x.ramp_rate(0.09)
+    ami3d._instrument_y.ramp_rate(0.10)
+    ami3d._instrument_z.ramp_rate(0.11)
+
+    ami3d.vector_ramp_rate(0.05)
+
+    with caplog.at_level(logging.DEBUG, logger=LOG_NAME):
+
+        # Initiate the simultaneous ramp
+        ami3d.cartesian((0.5, 0.5, 0.5))
+
+        # Assert the individual axes ramp rates were changed and not reverted
+        # to the known values set earlier
+        assert ami3d._instrument_x.ramp_rate() != 0.09
+        assert ami3d._instrument_y.ramp_rate() != 0.10
+        assert ami3d._instrument_z.ramp_rate() != 0.11
+
+        # Assert the expected values of the ramp rates of the individual axes
+        # set by the simultaneous ramp based on the vector_ramp_rate and the
+        # setpoint magnetic field
+        expected_ramp_rate = pytest.approx(
+            0.5 / np.linalg.norm(ami3d.cartesian(), ord=2) * ami3d.vector_ramp_rate()
+        )
+        assert ami3d._instrument_x.ramp_rate() == expected_ramp_rate
+        assert ami3d._instrument_y.ramp_rate() == expected_ramp_rate
+        assert ami3d._instrument_z.ramp_rate() == expected_ramp_rate
+
+    messages = [record.message for record in caplog.records]
+
+    expected_log_fragment = "Simultaneous ramp: not blocking until ramp is finished"
+    messages_with_expected_fragment = tuple(
+        message for message in messages if expected_log_fragment in message
+    )
+    assert (
+        len(messages_with_expected_fragment) == 1
+    ), f"found: {messages_with_expected_fragment}"
+
+    unexpected_log_fragment = "Restoring individual axes ramp rates"
+    messages_with_unexpected_fragment = tuple(
+        message for message in messages if unexpected_log_fragment in message
+    )
+    assert (
+        len(messages_with_unexpected_fragment) == 0
+    ), f"found: {messages_with_unexpected_fragment}"
+
+    # However, calling ``wait_while_all_axes_ramping`` DOES restore the
+    # individual ramp rates
+
+    with caplog.at_level(logging.DEBUG, logger=LOG_NAME):
+        ami3d.wait_while_all_axes_ramping()
+
+    messages_2 = [record.message for record in caplog.records]
+
+    expected_log_fragment_2 = "Restoring individual axes ramp rates"
+    messages_with_expected_fragment_2 = tuple(
+        message for message in messages_2 if expected_log_fragment_2 in message
+    )
+    assert (
+        len(messages_with_expected_fragment_2) == 1
+    ), f"found: {messages_with_expected_fragment_2}"
+
+    # Assert calling ``wait_while_all_axes_ramping`` is possible
+
+    ami3d.wait_while_all_axes_ramping()
+
+
+def test_simultaneous_ramp_mode_resets_individual_axis_ramp_rates_if_blocking_ramp(
+    current_driver, caplog: LogCaptureFixture, request: FixtureRequest
+) -> None:
+    ami3d = current_driver
+
+    ami3d.cartesian((0.0, 0.0, 0.0))
+
+    restore_parameters_stack = ExitStack()
+    request.addfinalizer(restore_parameters_stack.close)
+
+    restore_parameters_stack.callback(ami3d.cartesian, (0.0, 0.0, 0.0))
+
+    restore_parameters_stack.enter_context(
+        ami3d._instrument_x.ramp_rate.restore_at_exit()
+    )
+    restore_parameters_stack.enter_context(
+        ami3d._instrument_y.ramp_rate.restore_at_exit()
+    )
+    restore_parameters_stack.enter_context(
+        ami3d._instrument_z.ramp_rate.restore_at_exit()
+    )
+
+    restore_parameters_stack.enter_context(ami3d.ramp_mode.set_to("simultaneous"))
+
+    restore_parameters_stack.enter_context(ami3d.block_during_ramp.set_to(True))
+
+    with caplog.at_level(logging.DEBUG, logger=LOG_NAME):
+
+        # Set individual ramp rates to known values
+        ami3d._instrument_x.ramp_rate(0.09)
+        ami3d._instrument_y.ramp_rate(0.10)
+        ami3d._instrument_z.ramp_rate(0.11)
+
+        ami3d.vector_ramp_rate(0.05)
+
+        # Initiate the simultaneous ramp
+        ami3d.cartesian((0.5, 0.5, 0.5))
+
+        # Assert the individual axes ramp rates were reverted
+        # to the known values set earlier
+        assert ami3d._instrument_x.ramp_rate() == 0.09
+        assert ami3d._instrument_y.ramp_rate() == 0.10
+        assert ami3d._instrument_z.ramp_rate() == 0.11
+
+    messages = [record.message for record in caplog.records]
+
+    expected_log_fragment = "Restoring individual axes ramp rates"
+    messages_with_expected_fragment = tuple(
+        message for message in messages if expected_log_fragment in message
+    )
+    assert (
+        len(messages_with_expected_fragment) == 1
+    ), f"found: {messages_with_expected_fragment}"
+
+    expected_log_fragment_2 = "Simultaneous ramp: blocking until ramp is finished"
+    messages_with_expected_fragment_2 = tuple(
+        message for message in messages if expected_log_fragment_2 in message
+    )
+    assert (
+        len(messages_with_expected_fragment_2) == 1
+    ), f"found: {messages_with_expected_fragment_2}"
+
+    unexpected_log_fragment = "Simultaneous ramp: not blocking until ramp is finished"
+    messages_with_unexpected_fragment = tuple(
+        message for message in messages if unexpected_log_fragment in message
+    )
+    assert (
+        len(messages_with_unexpected_fragment) == 0
+    ), f"found: {messages_with_unexpected_fragment}"
+
+
+def test_reducing_field_ramp_limit_reduces_a_higher_ramp_rate(ami430) -> None:
     """
     When reducing field_ramp_limit, the actual ramp_rate should also be
     reduced if the new field_ramp_limit is lower than the actual ramp_rate
@@ -508,7 +729,7 @@ def test_reducing_field_ramp_limit_reduces_a_higher_ramp_rate(ami430):
     assert ami430.ramp_rate() == ami430.field_ramp_limit()
 
 
-def test_reducing_current_ramp_limit_reduces_a_higher_ramp_rate(ami430):
+def test_reducing_current_ramp_limit_reduces_a_higher_ramp_rate(ami430) -> None:
     """
     When reducing current_ramp_limit, the actual ramp_rate should also be
     reduced if the new current_ramp_limit is lower than the actual ramp_rate
@@ -531,7 +752,7 @@ def test_reducing_current_ramp_limit_reduces_a_higher_ramp_rate(ami430):
     assert ami430.ramp_rate() == ami430.field_ramp_limit()
 
 
-def test_reducing_field_ramp_limit_keeps_a_lower_ramp_rate_as_is(ami430):
+def test_reducing_field_ramp_limit_keeps_a_lower_ramp_rate_as_is(ami430) -> None:
     """
     When reducing field_ramp_limit, the actual ramp_rate should remain
     if the new field_ramp_limit is higher than the actual ramp_rate now.
@@ -554,7 +775,7 @@ def test_reducing_field_ramp_limit_keeps_a_lower_ramp_rate_as_is(ami430):
     assert ami430.ramp_rate() == old_ramp_rate
 
 
-def test_reducing_current_ramp_limit_keeps_a_lower_ramp_rate_as_is(ami430):
+def test_reducing_current_ramp_limit_keeps_a_lower_ramp_rate_as_is(ami430) -> None:
     """
     When reducing current_ramp_limit, the actual ramp_rate should remain
     if the new current_ramp_limit is higher than the actual ramp_rate now
@@ -579,20 +800,18 @@ def test_reducing_current_ramp_limit_keeps_a_lower_ramp_rate_as_is(ami430):
     assert ami430.ramp_rate() == old_ramp_rate
 
 
-def test_blocking_ramp_parameter(current_driver, caplog):
+def test_blocking_ramp_parameter(current_driver, caplog: LogCaptureFixture) -> None:
 
     assert current_driver.block_during_ramp() is True
 
-    log_name = "qcodes.instrument.base"
-
-    with caplog.at_level(logging.DEBUG, logger=log_name):
+    with caplog.at_level(logging.DEBUG, logger=LOG_NAME):
         current_driver.cartesian((0, 0, 0))
         caplog.clear()
         current_driver.cartesian((0, 0, 1))
 
         messages = [record.message for record in caplog.records]
-        assert messages[-1] == "[z(AMI430)] Finished blocking ramp"
-        assert messages[-6] == "[z(AMI430)] Starting blocking ramp of z to 1.0"
+        assert messages[-1] == "[z(AMIModel430)] Finished blocking ramp"
+        assert messages[-6] == "[z(AMIModel430)] Starting blocking ramp of z to 1.0"
 
         caplog.clear()
         current_driver.block_during_ramp(False)
@@ -602,7 +821,7 @@ def test_blocking_ramp_parameter(current_driver, caplog):
         assert len([mssg for mssg in messages if "blocking" in mssg]) == 0
 
 
-def test_current_and_field_params_interlink_at_init(ami430):
+def test_current_and_field_params_interlink_at_init(ami430) -> None:
     """
     Test that the values of the ``coil_constant``-dependent parameters
     are correctly proportional to each other at the initialization of the
@@ -621,7 +840,7 @@ def test_current_and_field_params_interlink_at_init(ami430):
 
 def test_current_and_field_params_interlink__change_current_ramp_limit(
     ami430, factor=0.9
-):
+) -> None:
     """
     Test that after changing ``current_ramp_limit``, the values of the
     ``field_*`` parameters change proportionally, ``coil__constant`` remains
@@ -663,7 +882,7 @@ def test_current_and_field_params_interlink__change_current_ramp_limit(
 
 def test_current_and_field_params_interlink__change_field_ramp_limit(
     ami430, factor=0.9
-):
+) -> None:
     """
     Test that after changing ``field_ramp_limit``, the values of the
     ``current_*`` parameters change proportionally, ``coil__constant`` remains
@@ -705,7 +924,7 @@ def test_current_and_field_params_interlink__change_field_ramp_limit(
 
 def test_current_and_field_params_interlink__change_coil_constant(
     ami430, factor: float = 3
-):
+) -> None:
     """
     Test that after changing ``change_coil_constant``, the values of the
     ``current_*`` parameters remain the same while the values of the
@@ -746,7 +965,7 @@ def test_current_and_field_params_interlink__change_coil_constant(
     np.testing.assert_almost_equal(field_limit, current_limit * coil_constant)
 
 
-def test_current_and_field_params_interlink__permutations_of_tests(ami430):
+def test_current_and_field_params_interlink__permutations_of_tests(ami430) -> None:
     """
     As per one of the user's request, the
     test_current_and_field_params_interlink__* tests are executed here with
@@ -850,9 +1069,11 @@ def _parametrization_kwargs():
 
 
 @pytest.mark.parametrize("field_limit", **_parametrization_kwargs())
-def test_numeric_field_limit(magnet_axes_instances, field_limit, request):
+def test_numeric_field_limit(
+    magnet_axes_instances, field_limit, request: FixtureRequest
+) -> None:
     mag_x, mag_y, mag_z = magnet_axes_instances
-    ami = AMI430_3D("AMI430-3D", mag_x, mag_y, mag_z, field_limit)
+    ami = AMIModel4303D("AMI430_3D", mag_x, mag_y, mag_z, field_limit)
     request.addfinalizer(ami.close)
 
     assert isinstance(ami._field_limit, float)
@@ -867,7 +1088,7 @@ def test_numeric_field_limit(magnet_axes_instances, field_limit, request):
         ami.cartesian(target_outside_limit)
 
 
-def test_ramp_rate_units_and_field_units_at_init(ami430):
+def test_ramp_rate_units_and_field_units_at_init(ami430) -> None:
     """
     Test values of ramp_rate_units and field_units parameters at init,
     and the units of other parameters which depend on the
@@ -893,7 +1114,9 @@ def test_ramp_rate_units_and_field_units_at_init(ami430):
     (("seconds", "s", 1), ("minutes", "min", 1 / 60)),
     ids=("seconds", "minutes"),
 )
-def test_change_ramp_rate_units_parameter(ami430, new_value, unit_string, scale):
+def test_change_ramp_rate_units_parameter(
+    ami430, new_value, unit_string, scale
+) -> None:
     """
     Test that changing value of ramp_rate_units parameter is reflected in
     settings of other magnet parameters.
@@ -935,7 +1158,7 @@ def test_change_ramp_rate_units_parameter(ami430, new_value, unit_string, scale)
     (("tesla", "T"), ("kilogauss", "kG")),
     ids=("tesla", "kilogauss"),
 )
-def test_change_field_units_parameter(ami430, new_value, unit_string):
+def test_change_field_units_parameter(ami430, new_value, unit_string) -> None:
     """
     Test that changing value of field_units parameter is reflected in
     settings of other magnet parameters.
@@ -970,7 +1193,7 @@ def test_change_field_units_parameter(ami430, new_value, unit_string):
     ami430.field_units("tesla")
 
 
-def test_switch_heater_enabled(ami430):
+def test_switch_heater_enabled(ami430) -> None:
     assert ami430.switch_heater.enabled() is False
     ami430.switch_heater.enabled(True)
     assert ami430.switch_heater.enabled() is True

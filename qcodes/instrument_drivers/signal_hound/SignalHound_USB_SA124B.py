@@ -6,9 +6,9 @@ from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 
-import qcodes.utils.validators as vals
+import qcodes.validators as vals
 from qcodes.instrument import Instrument
-from qcodes.instrument.parameter import ArrayParameter, Parameter, ParameterWithSetpoints
+from qcodes.parameters import ArrayParameter, Parameter, ParameterWithSetpoints
 
 log = logging.getLogger(__name__)
 
@@ -37,7 +37,9 @@ class ExternalRefParameter(TraceParameter):
     """
     Parameter that handles the fact that external reference can only be
     enabled but not disabled.
+
     From the manual:
+
     Once a device has successfully switched to an external reference it
     must remain using it until the device is closed, and it is undefined
     behavior to disconnect the reference input from the reference BNC port.
@@ -95,15 +97,19 @@ class SweepTraceParameter(TraceParameter):
 class FrequencySweep(ArrayParameter):
     """
     Hardware controlled parameter class for SignalHound_USB_SA124B.
+
     Instrument returns an array of powers for different frequencies
+
     Args:
         name: parameter name
         instrument: instrument the parameter belongs to
         sweep_len: Number of steps in sweep
         start_freq: Starting frequency
         stepsize: Size of a frequency step
+
     Methods:
           get(): executes a sweep and returns magnitude and phase arrays
+
     """
 
     def __init__(

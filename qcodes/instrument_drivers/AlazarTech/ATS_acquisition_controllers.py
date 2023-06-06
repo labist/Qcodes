@@ -3,11 +3,11 @@ from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 
-from .ATS import AcquisitionController, OutputType
+from .ATS import AcquisitionController
 
 
 # DFT AcquisitionController
-class Demodulation_AcquisitionController(AcquisitionController[float]):
+class DemodulationAcquisitionController(AcquisitionController[float]):
     """
     This class represents an example acquisition controller. End users will
     probably want to use something more sophisticated. It will average all
@@ -131,7 +131,7 @@ class Demodulation_AcquisitionController(AcquisitionController[float]):
         if self.number_of_channels == 2:
             # fit channel A and channel B
             res1 = self.fit(recordA)
-            res2 = self.fit(recordB)
+            self.fit(recordB)
             #return [alazar.signal_to_volt(1, res1[0] + 127.5),
             #        alazar.signal_to_volt(2, res2[0] + 127.5),
             #        res1[1], res2[1],
@@ -158,3 +158,11 @@ class Demodulation_AcquisitionController(AcquisitionController[float]):
 
         # see manual page 52!!! (using unsigned data)
         return ampl, math.atan2(ImPart, RePart) * 360 / (2 * math.pi)
+
+
+class Demodulation_AcquisitionController(DemodulationAcquisitionController):
+    """
+    Alias for backwards compatibility. Will eventually be deprecated and removed
+    """
+
+    pass

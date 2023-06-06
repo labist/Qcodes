@@ -1,22 +1,30 @@
+from __future__ import annotations
+
+import copy
+import cProfile
 import os
 import tempfile
-from typing import Any, Callable, Type, TYPE_CHECKING, Optional
 from contextlib import contextmanager
 from functools import wraps
+from pathlib import Path
 from time import sleep
-import cProfile
-import copy
+from typing import TYPE_CHECKING, Any, Callable, Generator, Mapping, Sequence, TypeVar
+
+import pytest
+from typing_extensions import ParamSpec
 
 import qcodes
-from qcodes.utils.metadata import Metadatable
 from qcodes.configuration import Config, DotDict
+from qcodes.metadatable import MetadatableWithName
+from qcodes.utils import deprecate
 
-from _pytest._code.code import ExceptionChainRepr
 if TYPE_CHECKING:
-    from _pytest._code.code import ExceptionInfo
+    from pytest import ExceptionInfo
 
 
-def strip_qc(d, keys=('instrument', '__class__')):
+def strip_qc(
+    d: dict[str, Any], keys: Sequence[str] = ("instrument", "__class__")
+) -> dict[str, Any]:
     # depending on how you run the tests, __module__ can either
     # have qcodes on the front or not. Just strip it off.
     for key in keys:
@@ -24,12 +32,14 @@ def strip_qc(d, keys=('instrument', '__class__')):
             d[key] = d[key].replace('qcodes.tests.', 'tests.')
     return d
 
+T = TypeVar("T")
+P = ParamSpec("P")
 
 def retry_until_does_not_throw(
-        exception_class_to_expect: Type[Exception] = AssertionError,
-        tries: int = 5,
-        delay: float = 0.1
-) -> Callable[..., Any]:
+    exception_class_to_expect: type[Exception] = AssertionError,
+    tries: int = 5,
+    delay: float = 0.1,
+) -> Callable[[Callable[P, T]], Callable[P, T]]:
     """
     Call the decorated function given number of times with given delay between
     the calls until it does not throw an exception of a given class.
@@ -61,10 +71,11 @@ def retry_until_does_not_throw(
         A callable that runs the decorated function until it does not throw
         a given exception
     """
-    def retry_until_passes_decorator(func: Callable[..., Any]):
+
+    def retry_until_passes_decorator(func: Callable[P, T]) -> Callable[P, T]:
 
         @wraps(func)
-        def func_retry(*args, **kwargs):
+        def func_retry(*args: P.args, **kwargs: P.kwargs) -> T:
             tries_left = tries - 1
             while tries_left > 0:
                 try:
@@ -82,7 +93,7 @@ def retry_until_does_not_throw(
     return retry_until_passes_decorator
 
 
-def profile(func):
+def profile(func: Callable[P, T]) -> Callable[P, T]:
     """
     Decorator that profiles the wrapped function with cProfile.
 
@@ -94,7 +105,8 @@ def profile(func):
     where 'p' is an instance of the 'Stats' class), and print the data
     (for example, 'p.print_stats()').
     """
-    def wrapper(*args, **kwargs):
+
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
         profile_filename = func.__name__ + '.prof'
         profiler = cProfile.Profile()
         result = profiler.runcall(func, *args, **kwargs)
@@ -103,7 +115,7 @@ def profile(func):
     return wrapper
 
 
-def error_caused_by(excinfo: 'ExceptionInfo[Any]', cause: str) -> bool:
+def error_caused_by(excinfo: ExceptionInfo[Any], cause: str) -> bool:
     """
     Helper function to figure out whether an exception was caused by another
     exception with the message provided.
@@ -114,40 +126,61 @@ def error_caused_by(excinfo: 'ExceptionInfo[Any]', cause: str) -> bool:
     """
 
     exc_repr = excinfo.getrepr()
-    assert isinstance(exc_repr, ExceptionChainRepr)
-    chain = exc_repr.chain
-    # first element of the chain is info about the root exception
-    error_location = chain[0][1]
-    root_traceback = chain[0][0]
-    # the error location is the most reliable data since
-    # it only contains the location and the error raised.
-    # however there are cases where this is empty
-    # in such cases fall back to the traceback
-    if error_location is not None:
-        return cause in str(error_location)
+
+    chain = getattr(exc_repr, "chain", None)
+
+    if chain is not None:
+        # first element of the chain is info about the root exception
+        error_location = chain[0][1]
+        root_traceback = chain[0][0]
+        # the error location is the most reliable data since
+        # it only contains the location and the error raised.
+        # however there are cases where this is empty
+        # in such cases fall back to the traceback
+        if error_location is not None:
+            return cause in str(error_location)
+        else:
+            return cause in str(root_traceback)
     else:
-        return cause in str(root_traceback)
+        return False
 
 
-class DumyPar(Metadatable):
+def skip_if_no_fixtures(dbname: str | Path) -> None:
+    if not os.path.exists(dbname):
+        pytest.skip(
+            "No db-file fixtures found. "
+            "Make sure that your git clone of qcodes has submodules "
+            "This can be done by executing: `git submodule update --init`"
+        )
 
-    """Docstring for DumyPar. """
 
-    def __init__(self, name):
+class DummyComponent(MetadatableWithName):
+
+    """Docstring for DummyComponent."""
+
+    def __init__(self, name: str):
         super().__init__()
         self.name = name
-        self.full_name = name
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.full_name
 
-    def set(self, value):
+    def set(self, value: float) -> float:
         value = value * 2
         return value
 
+    @property
+    def short_name(self) -> str:
+        return self.name
 
+    @property
+    def full_name(self) -> str:
+        return self.full_name
+
+
+@deprecate(reason="Unused internally", alternative="default_config fixture")
 @contextmanager
-def default_config(user_config: Optional[str] = None):
+def default_config(user_config: str | None = None) -> Generator[None, None, None]:
     """
     Context manager to temporarily establish default config settings.
     This is achieved by overwriting the config paths of the user-,
@@ -181,8 +214,7 @@ def default_config(user_config: Optional[str] = None):
         Config.cwd_file_name = ''
         Config.schema_cwd_file_name = ''
 
-        default_config_obj: Optional[DotDict] = copy.\
-            deepcopy(qcodes.config.current_config)
+        default_config_obj: DotDict | None = copy.deepcopy(qcodes.config.current_config)
         qcodes.config = Config()
 
         try:
@@ -198,18 +230,92 @@ def default_config(user_config: Optional[str] = None):
             qcodes.config.current_config = default_config_obj
 
 
+@deprecate(reason="Unused internally", alternative="reset_config_on_exit fixture")
 @contextmanager
-def reset_config_on_exit():
+def reset_config_on_exit() -> Generator[None, None, None]:
     """
-    Context manager to clean any modefication of the in memory config on exit
+    Context manager to clean any modification of the in memory config on exit
 
     """
-
-    default_config_obj: Optional[DotDict] = copy.deepcopy(
-        qcodes.config.current_config
-    )
+    default_config_obj: DotDict | None = copy.deepcopy(qcodes.config.current_config)
 
     try:
         yield
     finally:
         qcodes.config.current_config = default_config_obj
+
+
+def compare_dictionaries(
+    dict_1: Mapping[Any, Any],
+    dict_2: Mapping[Any, Any],
+    dict_1_name: str | None = "d1",
+    dict_2_name: str | None = "d2",
+    path: str = "",
+) -> tuple[bool, str]:
+    """
+    Compare two dictionaries recursively to find non matching elements.
+
+    Args:
+        dict_1: First dictionary to compare.
+        dict_2: Second dictionary to compare.
+        dict_1_name: Optional name of the first dictionary used in the
+                     differences string.
+        dict_2_name: Optional name of the second dictionary used in the
+                     differences string.
+    Returns:
+        Tuple: Are the dicts equal and the difference rendered as
+               a string.
+
+    """
+    err = ""
+    key_err = ""
+    value_err = ""
+    old_path = path
+    for k in dict_1.keys():
+        path = old_path + "[%s]" % k
+        if k not in dict_2.keys():
+            key_err += f"Key {dict_1_name}{path} not in {dict_2_name}\n"
+        else:
+            if isinstance(dict_1[k], dict) and isinstance(dict_2[k], dict):
+                err += compare_dictionaries(
+                    dict_1[k], dict_2[k], dict_1_name, dict_2_name, path
+                )[1]
+            else:
+                match = dict_1[k] == dict_2[k]
+
+                # if values are equal-length numpy arrays, the result of
+                # "==" is a bool array, so we need to 'all' it.
+                # In any other case "==" returns a bool
+                # TODO(alexcjohnson): actually, if *one* is a numpy array
+                # and the other is another sequence with the same entries,
+                # this will compare them as equal. Do we want this, or should
+                # we require exact type match?
+                if hasattr(match, "all"):
+                    match = match.all()
+
+                if not match:
+                    value_err += (
+                        'Value of "{}{}" ("{}", type"{}") not same as\n'
+                        '  "{}{}" ("{}", type"{}")\n\n'
+                    ).format(
+                        dict_1_name,
+                        path,
+                        dict_1[k],
+                        type(dict_1[k]),
+                        dict_2_name,
+                        path,
+                        dict_2[k],
+                        type(dict_2[k]),
+                    )
+
+    for k in dict_2.keys():
+        path = old_path + f"[{k}]"
+        if k not in dict_1.keys():
+            key_err += f"Key {dict_2_name}{path} not in {dict_1_name}\n"
+
+    dict_differences = key_err + value_err + err
+    if len(dict_differences) == 0:
+        dicts_equal = True
+    else:
+        dicts_equal = False
+    return dicts_equal, dict_differences

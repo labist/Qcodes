@@ -2,24 +2,34 @@ import array as arr
 import logging
 import re
 import struct
-import warnings
-from collections import abc, defaultdict, namedtuple
-from functools import WRAPPER_ASSIGNMENTS, wraps
+from collections import abc, defaultdict
 from io import BytesIO
 from time import localtime, sleep
-from typing import Any, Dict, List, NamedTuple, Optional, Sequence, Tuple, Union, cast
+from typing import (
+    Any,
+    Dict,
+    List,
+    Literal,
+    NamedTuple,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+    cast,
+)
 
 import numpy as np
 from pyvisa.errors import VisaIOError
-from typing_extensions import Literal
 
-from qcodes import VisaInstrument
 from qcodes import validators as vals
-from qcodes.utils.deprecate import deprecate
+from qcodes.instrument import VisaInstrument
 
 # conditionally import lomentum for support of lomentum type sequences
 try:
-    from lomentum.tools import get_element_channel_ids, is_subsequence
+    from lomentum.tools import (  # pyright: ignore[reportMissingImports]
+        get_element_channel_ids,
+        is_subsequence,
+    )
     USE_LOMENTUM = True
 except ImportError:
     USE_LOMENTUM = False
@@ -37,7 +47,7 @@ def parsestr(v: str) -> str:
     return v.strip().strip('"')
 
 
-class Tektronix_AWG5014(VisaInstrument):
+class TektronixAWG5014(VisaInstrument):
     """
     This is the QCoDeS driver for the Tektronix AWG5014
     Arbitrary Waveform Generator.
@@ -1856,7 +1866,7 @@ class Tektronix_AWG5014(VisaInstrument):
     def clear_message_queue(self, verbose: bool = False) -> None:
         """
         Function to clear up (flush) the VISA message queue of the AWG
-        instrument. Reads all messages in the the queue.
+        instrument. Reads all messages in the queue.
 
         Args:
             verbose: If True, the read messages are printed.
@@ -1873,3 +1883,11 @@ class Tektronix_AWG5014(VisaInstrument):
             except VisaIOError:
                 gotexception = True
         self.visa_handle.timeout = original_timeout
+
+
+class Tektronix_AWG5014(TektronixAWG5014):
+    """
+    Alias with non-conformant name left for backwards compatibility
+    """
+
+    pass

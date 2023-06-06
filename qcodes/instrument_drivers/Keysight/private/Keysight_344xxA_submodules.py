@@ -7,14 +7,13 @@ from typing import Any, Optional, Sequence, Tuple
 import numpy as np
 from packaging import version
 
-import qcodes.utils.validators as vals
-from qcodes import InstrumentChannel, VisaInstrument
-from qcodes.instrument.base import Instrument
-from qcodes.instrument.parameter import Parameter, ParameterWithSetpoints
+import qcodes.validators as vals
+from qcodes.instrument import Instrument, InstrumentChannel, VisaInstrument
 from qcodes.instrument_drivers.Keysight.private.error_handling import (
     KeysightErrorQueueMixin,
 )
-from qcodes.utils.installation_info import convert_legacy_version_to_supported_version
+from qcodes.parameters import Parameter, ParameterWithSetpoints
+from qcodes.utils import convert_legacy_version_to_supported_version
 
 
 class Trigger(InstrumentChannel):
@@ -393,7 +392,7 @@ class TimeTrace(ParameterWithSetpoints): # pylint: disable=abstract-method
             self.instrument.trigger.force()
             data = self.instrument.fetch()
 
-        return data
+        return data  # pyright: ignore[reportUnboundVariable]
 
     def get_raw(self) -> np.ndarray:  # pylint: disable=method-hidden
 
@@ -640,6 +639,8 @@ class _Keysight_344xxA(KeysightErrorQueueMixin, VisaInstrument):
                             '34411A': [20e-6, 0.83],
                             '34465A': [0.3e-3, 1.67],
                             '34470A': [0.3e-3, 1.67]}
+            else:
+                raise RuntimeError("line_frequency must be either 50 or 60 Hz")
             if self.has_DIG:
                 apt_times['34465A'][0] = 20e-6
                 apt_times['34470A'][0] = 20e-6

@@ -3,10 +3,9 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from qcodes import VisaInstrument
-from qcodes.instrument.channel import ChannelList, InstrumentChannel
-from qcodes.instrument.parameter import ArrayParameter
-from qcodes.utils.validators import ComplexNumbers, Enum, Ints, Numbers
+from qcodes.instrument import ChannelList, InstrumentChannel, VisaInstrument
+from qcodes.parameters import ArrayParameter
+from qcodes.validators import ComplexNumbers, Enum, Ints, Numbers
 
 log = logging.getLogger(__name__)
 
@@ -70,14 +69,15 @@ class SR86xBufferReadout(ArrayParameter):
 
 class SR86xBuffer(InstrumentChannel):
     """
-    The buffer module for the SR86x driver. This driver has been verified to
-    work with the SR860 and SR865. For reference, please consult the SR860
+    Buffer module for the SR86x drivers.
+
+    This driver has been verified to work with the SR860 and SR865.
+    For reference, please consult the SR860
     manual: http://thinksrs.com/downloads/PDFs/Manuals/SR860m.pdf
     """
 
     def __init__(self, parent: 'SR86x', name: str) -> None:
         super().__init__(parent, name)
-        self._parent = parent
 
         self.add_parameter(
             "capture_length_in_kb",
@@ -576,15 +576,16 @@ class SR86xDataChannel(InstrumentChannel):
         self._cmd_id_name = cmd_id_name
         self._color = color
 
-        self.add_parameter(f'assigned_parameter',
-                           label=f'Data channel {cmd_id} parameter',
-                           docstring=f'Allows to set and get the '
-                                     f'parameter that is assigned to data '
-                                     f'channel {cmd_id}',
-                           set_cmd=f'CDSP {cmd_id}, {{}}',
-                           get_cmd=f'CDSP? {cmd_id}',
-                           val_mapping=self.parent.PARAMETER_NAMES
-                           )
+        self.add_parameter(
+            "assigned_parameter",
+            label=f"Data channel {cmd_id} parameter",
+            docstring=f"Allows to set and get the "
+            f"parameter that is assigned to data "
+            f"channel {cmd_id}",
+            set_cmd=f"CDSP {cmd_id}, {{}}",
+            get_cmd=f"CDSP? {cmd_id}",
+            val_mapping=self.parent.PARAMETER_NAMES,
+        )
 
     @property
     def cmd_id(self) -> str:

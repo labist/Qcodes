@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Dict, Generic, Mapping, Optional, Tuple, TypeVar
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Generic, TypeVar
 
 import numpy as np
 
 from qcodes.dataset.descriptions.rundescriber import RunDescriber
 from qcodes.dataset.sqlite.connection import ConnectionPlus
 from qcodes.dataset.sqlite.queries import completed, load_new_data_for_rundescriber
-from qcodes.utils.deprecate import deprecate
+from qcodes.utils import deprecate
 
 from .exporters.export_to_pandas import (
     load_to_concatenated_dataframe,
@@ -23,9 +24,10 @@ if TYPE_CHECKING:
     import pandas as pd
     import xarray as xr
 
-    from .data_set import DataSet, ParameterData
-    from .data_set_in_memory import DataSetInMem
-    from .data_set_protocol import DataSetProtocol
+    # used in forward refs that cannot be detected
+    from .data_set import DataSet  # noqa F401
+    from .data_set_in_memory import DataSetInMem  # noqa F401
+    from .data_set_protocol import DataSetProtocol, ParameterData
 
 DatasetType = TypeVar("DatasetType", bound="DataSetProtocol", covariant=True)
 
@@ -48,18 +50,18 @@ class DataSetCache(Generic[DatasetType]):
         self._dataset = dataset
         self._data: ParameterData = {}
         #: number of rows read per parameter tree (by the name of the dependent parameter)
-        self._read_status: Dict[str, int] = {}
+        self._read_status: dict[str, int] = {}
         #: number of rows written per parameter tree (by the name of the dependent parameter)
-        self._write_status: Dict[str, Optional[int]] = {}
+        self._write_status: dict[str, int | None] = {}
         self._loaded_from_completed_ds = False
-        self._live: Optional[bool] = None
+        self._live: bool | None = None
 
     @property
     def rundescriber(self) -> RunDescriber:
         return self._dataset.description
 
     @property
-    def live(self) -> Optional[bool]:
+    def live(self) -> bool | None:
         """
         If true this cache has been produced by appending data as measured.
         If false the data has been read from disk.
@@ -83,6 +85,18 @@ class DataSetCache(Generic[DatasetType]):
             self.load_data_from_db()
 
         return self._data
+
+    def prepare(self) -> None:
+        """
+        Set up the internal datastructure of the cache.
+        Must be called after the dataset has been setup with
+        interdependencies but before data is added to the dataset.
+        """
+
+        if self._data == {}:
+            self._data = self.rundescriber.interdeps._empty_data_dict()
+        else:
+            raise RuntimeError("Cannot prepare a cache that is not empty")
 
     def load_data_from_db(self) -> None:
         """
@@ -118,7 +132,7 @@ class DataSetCache(Generic[DatasetType]):
         if not all(status is None for status in self._write_status.values()):
             self._live = True
 
-    def to_pandas_dataframe_dict(self) -> Dict[str, pd.DataFrame]:
+    def to_pandas_dataframe_dict(self) -> dict[str, pd.DataFrame]:
         """
         Convert the cached dataset to Pandas dataframes. The returned dataframes
         are in the same format :py:class:`.DataSet.to_pandas_dataframe_dict`.
@@ -143,7 +157,7 @@ class DataSetCache(Generic[DatasetType]):
         return load_to_concatenated_dataframe(data)
 
     @deprecate(alternative="to_pandas_dataframe or to_pandas_dataframe_dict")
-    def to_pandas(self) -> Dict[str, pd.DataFrame]:
+    def to_pandas(self) -> dict[str, pd.DataFrame]:
         """
         Returns the values stored in the :class:`.dataset.data_set.DataSet` as a
         concatenated :py:class:`pandas.DataFrame` s
@@ -163,7 +177,7 @@ class DataSetCache(Generic[DatasetType]):
         """
         return self.to_pandas_dataframe_dict()
 
-    def to_xarray_dataarray_dict(self) -> Dict[str, xr.DataArray]:
+    def to_xarray_dataarray_dict(self) -> dict[str, xr.DataArray]:
         """
         Returns the values stored in the :class:`.dataset.data_set.DataSet` as a dict of
         :py:class:`xr.DataArray` s
@@ -200,10 +214,10 @@ def load_new_data_from_db_and_append(
     conn: ConnectionPlus,
     table_name: str,
     rundescriber: RunDescriber,
-    write_status: Mapping[str, Optional[int]],
+    write_status: Mapping[str, int | None],
     read_status: Mapping[str, int],
     existing_data: Mapping[str, Mapping[str, np.ndarray]],
-) -> Tuple[Dict[str, Optional[int]], Dict[str, int], Dict[str, Dict[str, np.ndarray]]]:
+) -> tuple[dict[str, int | None], dict[str, int], dict[str, dict[str, np.ndarray]]]:
     """
     Append any new data in the db to an already existing datadict and return the merged
     data.
@@ -241,10 +255,10 @@ def load_new_data_from_db_and_append(
 
 def append_shaped_parameter_data_to_existing_arrays(
     rundescriber: RunDescriber,
-    write_status: Mapping[str, Optional[int]],
+    write_status: Mapping[str, int | None],
     existing_data: Mapping[str, Mapping[str, np.ndarray]],
     new_data: Mapping[str, Mapping[str, np.ndarray]],
-) -> Tuple[Dict[str, Optional[int]], Dict[str, Dict[str, np.ndarray]]]:
+) -> tuple[dict[str, int | None], dict[str, dict[str, np.ndarray]]]:
     """
     Append datadict to an already existing datadict and return the merged
     data.
@@ -291,16 +305,25 @@ def append_shaped_parameter_data_to_existing_arrays(
     return updated_write_status, merged_data
 
 
-def _merge_data(existing_data: Mapping[str, np.ndarray],
-                new_data: Mapping[str, np.ndarray],
-                shape: Optional[Tuple[int, ...]],
-                single_tree_write_status: Optional[int],
-                meas_parameter: str,
-                ) -> Tuple[Dict[str, np.ndarray], Optional[int]]:
+def _merge_data(
+    existing_data: Mapping[str, np.ndarray],
+    new_data: Mapping[str, np.ndarray],
+    shape: tuple[int, ...] | None,
+    single_tree_write_status: int | None,
+    meas_parameter: str,
+) -> tuple[dict[str, np.ndarray], int | None]:
 
     subtree_merged_data = {}
-    subtree_parameters = set(existing_data.keys()) | set(new_data.keys())
-    new_write_status: Optional[int]
+    subtree_parameters = existing_data.keys()
+
+    if not set(new_data.keys()).issubset(set(existing_data.keys())):
+        raise RuntimeError(
+            "Trying to add unexpected key to cache."
+            "The following keys were unexpected: "
+            f"{set(new_data.keys() - existing_data.keys())}"
+        )
+
+    new_write_status: int | None
     single_param_merged_data, new_write_status = _merge_data_single_param(
         existing_data.get(meas_parameter),
         new_data.get(meas_parameter),
@@ -326,11 +349,12 @@ def _merge_data(existing_data: Mapping[str, np.ndarray],
 
 
 def _merge_data_single_param(
-        existing_values: Optional[np.ndarray],
-        new_values: Optional[np.ndarray],
-        shape: Optional[Tuple[int, ...]],
-        single_tree_write_status: Optional[int]) -> Tuple[Optional[np.ndarray], Optional[int]]:
-    merged_data: Optional[np.ndarray]
+    existing_values: np.ndarray | None,
+    new_values: np.ndarray | None,
+    shape: tuple[int, ...] | None,
+    single_tree_write_status: int | None,
+) -> tuple[np.ndarray | None, int | None]:
+    merged_data: np.ndarray | None
     if (
         existing_values is not None and existing_values.size != 0
     ) and new_values is not None:
@@ -352,9 +376,9 @@ def _merge_data_single_param(
     return merged_data, new_write_status
 
 
-def _create_new_data_dict(new_values: np.ndarray,
-                          shape: Optional[Tuple[int, ...]]
-                          ) -> Tuple[np.ndarray, int]:
+def _create_new_data_dict(
+    new_values: np.ndarray, shape: tuple[int, ...] | None
+) -> tuple[np.ndarray, int]:
     if shape is None:
         return new_values, new_values.size
     elif new_values.size > 0:
@@ -373,11 +397,11 @@ def _create_new_data_dict(new_values: np.ndarray,
 
 
 def _insert_into_data_dict(
-        existing_values: np.ndarray,
-        new_values: np.ndarray,
-        write_status: Optional[int],
-        shape: Optional[Tuple[int, ...]]
-) -> Tuple[np.ndarray, Optional[int]]:
+    existing_values: np.ndarray,
+    new_values: np.ndarray,
+    write_status: int | None,
+    shape: tuple[int, ...] | None,
+) -> tuple[np.ndarray, int | None]:
     if new_values.size == 0:
         return existing_values, write_status
 
@@ -419,7 +443,7 @@ def _insert_into_data_dict(
 
 def _expand_single_param_dict(
         single_param_dict: Mapping[str, np.ndarray]
-) -> Dict[str, np.ndarray]:
+) -> dict[str, np.ndarray]:
     sizes = {name: array.size for name, array in single_param_dict.items()}
     maxsize = max(sizes.values())
     max_names = tuple(name for name, size in sizes.items() if size == maxsize)
@@ -464,7 +488,8 @@ class DataSetCacheWithDBBackend(DataSetCache["DataSet"]):
         self._dataset.completed = completed(self._dataset.conn, self._dataset.run_id)
         if self._dataset.completed:
             self._loaded_from_completed_ds = True
-
+        if self._data == {}:
+            self.prepare()
         (
             self._write_status,
             self._read_status,

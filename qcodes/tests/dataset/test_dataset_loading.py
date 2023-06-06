@@ -1,10 +1,15 @@
+from __future__ import annotations
+
 import time
 from math import floor
 
+import numpy as np
 import pytest
 
+import qcodes as qc
 from qcodes.dataset.data_set import (
     DataSet,
+    get_guids_by_run_spec,
     load_by_counter,
     load_by_guid,
     load_by_id,
@@ -20,10 +25,13 @@ from qcodes.dataset.sqlite.queries import (
     get_raw_run_attributes,
     raw_time_to_str_time,
 )
+from qcodes.utils import QCoDeSDeprecationWarning
 
 
 @pytest.mark.usefixtures("experiment")
-def test_load_by_id():
+@pytest.mark.usefixtures("reset_config_on_exit")
+def test_load_by_id() -> None:
+    qc.config.GUID_components.GUID_type = "random_sample"
     ds = new_data_set("test-dataset")
     run_id = ds.run_id
     ds.mark_started()
@@ -54,8 +62,23 @@ def test_load_by_id():
         _ = load_by_id(non_existing_run_id)
 
 
+@pytest.mark.usefixtures("experiment")
+def test_get_guids_from_run_spec_warns() -> None:
+    ds = new_data_set("test-dataset")
+    run_id = ds.run_id
+    ds.mark_started()
+    ds.mark_completed()
+    expected_guid = ds.guid
+    with pytest.warns(
+        expected_warning=QCoDeSDeprecationWarning, match="Unused part of private api"
+    ):
+        loaded_guids = get_guids_from_run_spec(captured_run_id=run_id, conn=ds.conn)
+    assert len(loaded_guids) == 1
+    assert loaded_guids[0] == expected_guid
+
+
 @pytest.mark.usefixtures("empty_temp_db")
-def test_load_by_counter():
+def test_load_by_counter() -> None:
     exp = new_experiment(name="for_loading", sample_name="no_sample")
     ds = new_data_set("my_first_ds")
 
@@ -63,7 +86,8 @@ def test_load_by_counter():
 
     assert loaded_ds.pristine is True
     assert loaded_ds.running is False
-    assert loaded_ds.started is False
+    assert loaded_ds.run_timestamp() is None
+    assert loaded_ds.completed_timestamp() is None
     assert loaded_ds.completed is False
 
     ds.mark_started()
@@ -72,7 +96,8 @@ def test_load_by_counter():
     loaded_ds = load_by_counter(exp.exp_id, 1)
 
     assert loaded_ds.pristine is False
-    assert loaded_ds.started is True
+    assert loaded_ds.run_timestamp() is not None
+    assert loaded_ds.completed_timestamp() is not None
     assert loaded_ds.running is False
     assert loaded_ds.completed is True
 
@@ -131,7 +156,7 @@ def test_get_run_attributes() -> None:
 
 
 @pytest.mark.usefixtures("empty_temp_db")
-def test_experiment_info_in_dataset():
+def test_experiment_info_in_dataset() -> None:
     exp = new_experiment(name="for_loading", sample_name="no_sample")
     ds = new_data_set("my_first_ds")
 
@@ -141,7 +166,7 @@ def test_experiment_info_in_dataset():
 
 
 @pytest.mark.usefixtures("empty_temp_db")
-def test_run_timestamp():
+def test_run_timestamp() -> None:
     _ = new_experiment(name="for_loading", sample_name="no_sample")
 
     t_before_data_set = time.time()
@@ -150,12 +175,13 @@ def test_run_timestamp():
     t_after_data_set = time.time()
 
     actual_run_timestamp_raw = ds.run_timestamp_raw
+    assert actual_run_timestamp_raw is not None
 
     assert t_before_data_set <= actual_run_timestamp_raw <= t_after_data_set
 
 
 @pytest.mark.usefixtures("empty_temp_db")
-def test_run_timestamp_with_default_format():
+def test_run_timestamp_with_default_format() -> None:
     _ = new_experiment(name="for_loading", sample_name="no_sample")
 
     t_before_data_set = time.time()
@@ -163,21 +189,22 @@ def test_run_timestamp_with_default_format():
     ds.mark_started()
     t_after_data_set = time.time()
 
+    run_ts = ds.run_timestamp()
+    assert run_ts is not None
     # Note that here we also test the default format of `run_timestamp`
-    actual_run_timestamp_raw = time.mktime(
-        time.strptime(ds.run_timestamp(), "%Y-%m-%d %H:%M:%S"))
+    actual_run_timestamp_raw = time.mktime(time.strptime(run_ts, "%Y-%m-%d %H:%M:%S"))
 
     # Note that because the default format precision is 1 second, we add this
     # second to the right side of the comparison
     t_before_data_set_secs = floor(t_before_data_set)
     t_after_data_set_secs = floor(t_after_data_set)
-    assert t_before_data_set_secs \
-           <= actual_run_timestamp_raw \
-           <= t_after_data_set_secs + 1
+    assert (
+        t_before_data_set_secs <= actual_run_timestamp_raw <= t_after_data_set_secs + 1
+    )
 
 
 @pytest.mark.usefixtures("empty_temp_db")
-def test_completed_timestamp():
+def test_completed_timestamp() -> None:
     _ = new_experiment(name="for_loading", sample_name="no_sample")
     ds = new_data_set("my_first_ds")
 
@@ -187,14 +214,13 @@ def test_completed_timestamp():
     t_after_complete = time.time()
 
     actual_completed_timestamp_raw = ds.completed_timestamp_raw
+    assert actual_completed_timestamp_raw is not None
 
-    assert t_before_complete \
-           <= actual_completed_timestamp_raw \
-           <= t_after_complete
+    assert t_before_complete <= actual_completed_timestamp_raw <= t_after_complete
 
 
 @pytest.mark.usefixtures("empty_temp_db")
-def test_completed_timestamp_for_not_completed_dataset():
+def test_completed_timestamp_for_not_completed_dataset() -> None:
     _ = new_experiment(name="for_loading", sample_name="no_sample")
     ds = new_data_set("my_first_ds")
 
@@ -209,7 +235,7 @@ def test_completed_timestamp_for_not_completed_dataset():
 
 
 @pytest.mark.usefixtures("empty_temp_db")
-def test_completed_timestamp_with_default_format():
+def test_completed_timestamp_with_default_format() -> None:
     _ = new_experiment(name="for_loading", sample_name="no_sample")
     ds = new_data_set("my_first_ds")
 
@@ -218,21 +244,27 @@ def test_completed_timestamp_with_default_format():
     ds.mark_completed()
     t_after_complete = time.time()
 
+    completed_ts = ds.completed_timestamp()
+    assert completed_ts is not None
+
     # Note that here we also test the default format of `completed_timestamp`
     actual_completed_timestamp_raw = time.mktime(
-        time.strptime(ds.completed_timestamp(), "%Y-%m-%d %H:%M:%S"))
+        time.strptime(completed_ts, "%Y-%m-%d %H:%M:%S")
+    )
 
     # Note that because the default format precision is 1 second, we add this
     # second to the right side of the comparison
     t_before_complete_secs = floor(t_before_complete)
     t_after_complete_secs = floor(t_after_complete)
-    assert t_before_complete_secs \
-           <= actual_completed_timestamp_raw \
-           <= t_after_complete_secs + 1
+    assert (
+        t_before_complete_secs
+        <= actual_completed_timestamp_raw
+        <= t_after_complete_secs + 1
+    )
 
 
 @pytest.mark.usefixtures('experiment')
-def test_load_by_guid(some_interdeps):
+def test_load_by_guid(some_interdeps) -> None:
     ds = DataSet()
     ds.set_interdependencies(some_interdeps[1])
     ds.mark_started()
@@ -243,7 +275,7 @@ def test_load_by_guid(some_interdeps):
     assert loaded_ds.the_same_dataset_as(ds)
 
 
-def test_load_by_run_spec(empty_temp_db, some_interdeps):
+def test_load_by_run_spec(empty_temp_db, some_interdeps) -> None:
 
     def create_ds_with_exp_id(exp_id):
         ds = DataSet(exp_id=exp_id)
@@ -262,7 +294,7 @@ def test_load_by_run_spec(empty_temp_db, some_interdeps):
 
     conn = created_ds[0].conn
 
-    guids = get_guids_from_run_spec(conn=conn)
+    guids = get_guids_by_run_spec(conn=conn)
     assert len(guids) == 3
 
     # since we are not copying runs from multiple dbs we can always load by
@@ -275,24 +307,24 @@ def test_load_by_run_spec(empty_temp_db, some_interdeps):
 
     # All the datasets datasets have the same captured counter
     # so we cannot load by that alone
-    guids_cc1 = get_guids_from_run_spec(captured_counter=1, conn=conn)
+    guids_cc1 = get_guids_by_run_spec(captured_counter=1, conn=conn)
     assert len(guids_cc1) == 3
     with pytest.raises(NameError, match="More than one matching"):
         load_by_run_spec(captured_counter=1)
 
     # there are two different experiments with exp name "test-experiment1"
     # and thus 2 different datasets with counter=1 and that exp name
-    guids_cc1_te1 = get_guids_from_run_spec(captured_counter=1,
-                                            experiment_name='te1',
-                                            conn=conn)
+    guids_cc1_te1 = get_guids_by_run_spec(
+        captured_counter=1, experiment_name="te1", conn=conn
+    )
     assert len(guids_cc1_te1) == 2
     with pytest.raises(NameError, match="More than one matching"):
         load_by_run_spec(captured_counter=1, experiment_name="te1", conn=conn)
 
     # but for "test-experiment2" there is only one
-    guids_cc1_te2 = get_guids_from_run_spec(captured_counter=1,
-                                            experiment_name='te2',
-                                            conn=conn)
+    guids_cc1_te2 = get_guids_by_run_spec(
+        captured_counter=1, experiment_name="te2", conn=conn
+    )
     assert len(guids_cc1_te2) == 1
     loaded_ds = load_by_run_spec(captured_counter=1,
                                  experiment_name="te2",
@@ -302,9 +334,9 @@ def test_load_by_run_spec(empty_temp_db, some_interdeps):
 
     # there are two different experiments with sample name "test_sample2" but
     # different exp names so the counter is not unique
-    guids_cc1_ts2 = get_guids_from_run_spec(captured_counter=1,
-                                            sample_name='ts2',
-                                            conn=conn)
+    guids_cc1_ts2 = get_guids_by_run_spec(
+        captured_counter=1, sample_name="ts2", conn=conn
+    )
     assert len(guids_cc1_ts2) == 2
     with pytest.raises(NameError, match="More than one matching"):
         load_by_run_spec(captured_counter=1,
@@ -312,9 +344,9 @@ def test_load_by_run_spec(empty_temp_db, some_interdeps):
                          conn=conn)
 
     # but for  "test_sample1" there is only one
-    guids_cc1_ts1 = get_guids_from_run_spec(captured_counter=1,
-                                            sample_name='ts1',
-                                            conn=conn)
+    guids_cc1_ts1 = get_guids_by_run_spec(
+        captured_counter=1, sample_name="ts1", conn=conn
+    )
     assert len(guids_cc1_ts1) == 1
     loaded_ds = load_by_run_spec(captured_counter=1,
                                  sample_name="ts1",
@@ -335,6 +367,24 @@ def test_load_by_run_spec(empty_temp_db, some_interdeps):
     with pytest.raises(NameError, match="No run matching"):
         load_by_run_spec(captured_counter=10000, sample_name="ts2", conn=conn)
 
-    empty_guid_list = get_guids_from_run_spec(conn=conn,
-                                              experiment_name='nosuchexp')
+    empty_guid_list = get_guids_by_run_spec(conn=conn, experiment_name="nosuchexp")
     assert empty_guid_list == []
+
+
+def test_callback(scalar_datasets_parameterized: DataSet) -> None:
+
+    called_progress: list[float] = []
+
+    def callback_closure(called_progress: list[float]):
+        def callback(progress: float) -> None:
+            called_progress.append(progress)
+
+        return callback
+
+    scalar_datasets_parameterized.get_parameter_data(
+        callback=callback_closure(called_progress)
+    )
+    if len(scalar_datasets_parameterized) > 100:
+        assert called_progress == list(np.arange(0.0, 101.0, 5.0))
+    else:
+        assert called_progress == [0.0, 50.0, 100.0]

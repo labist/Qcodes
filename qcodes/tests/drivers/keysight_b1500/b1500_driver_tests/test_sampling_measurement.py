@@ -4,10 +4,9 @@ import numpy as np
 import pytest
 
 from qcodes.instrument_drivers.Keysight.keysightb1500 import constants
-from qcodes.instrument_drivers.Keysight.keysightb1500.KeysightB1500_sampling_measurement import (
+from qcodes.instrument_drivers.Keysight.keysightb1500.KeysightB1500_module import (
     MeasurementNotTaken,
 )
-from qcodes.tests.drivers.keysight_b1500.b1500_driver_tests.test_b1500 import b1500
 
 
 @pytest.fixture
@@ -45,20 +44,19 @@ def smu_sampling_measurement(smu, smu_output):
     return smu_sm, status, channel, type_
 
 
-def test_timing_parameters_is_none_at_init(smu):
+def test_timing_parameters_is_none_at_init(smu) -> None:
     assert smu._timing_parameters['interval'] is None
     assert smu._timing_parameters['number'] is None
     assert smu._timing_parameters['h_bias'] is None
     assert smu._timing_parameters['h_base'] is None
 
 
-def test_measurement_requires_timing_parameters_to_be_set(smu):
+def test_measurement_requires_timing_parameters_to_be_set(smu) -> None:
     with pytest.raises(Exception, match='set timing parameters first'):
         smu.sampling_measurement_trace.get()
 
 
-def test_sampling_measurement(smu_sampling_measurement,
-                              smu_output):
+def test_sampling_measurement(smu_sampling_measurement, smu_output) -> None:
     smu_sampling_measurement, _, _, _ = smu_sampling_measurement
     n_samples, data_to_return = smu_output
     smu_sampling_measurement.timing_parameters(h_bias=0,
@@ -70,15 +68,14 @@ def test_sampling_measurement(smu_sampling_measurement,
     smu_sampling_measurement.root_instrument.ask.assert_called_with('XE')
 
 
-def test_compliance_needs_data_from_sampling_measurement(smu):
+def test_compliance_needs_data_from_sampling_measurement(smu) -> None:
     with pytest.raises(MeasurementNotTaken,
                        match='First run sampling_measurement method '
                              'to generate the data'):
         smu.sampling_measurement_trace.compliance()
 
 
-def test_compliance(smu_sampling_measurement,
-                    smu_output):
+def test_compliance(smu_sampling_measurement, smu_output) -> None:
     n_samples, _ = smu_output
     smu_sampling_measurement, status, _, _ = smu_sampling_measurement
     smu_sampling_measurement.timing_parameters(h_bias=0,
@@ -94,8 +91,9 @@ def test_compliance(smu_sampling_measurement,
     np.testing.assert_array_equal(smu_compliance, compliance_list)
 
 
-def test_output_data_type_and_data_channel(smu_sampling_measurement,
-                                           smu_output):
+def test_output_data_type_and_data_channel(
+    smu_sampling_measurement, smu_output
+) -> None:
     n_samples, _ = smu_output
     smu_sampling_measurement, _, channel, type_ = smu_sampling_measurement
     smu_sampling_measurement.timing_parameters(h_bias=0,

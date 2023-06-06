@@ -1,12 +1,12 @@
 """
 This module takes care of the SQLite settings.
 """
+from __future__ import annotations
+
 import sqlite3
-from typing import Tuple, Dict, Union, Optional
 
 
-def _read_settings() -> Tuple[Dict[str, Union[str,int]],
-                              Dict[str, Union[bool, int, str]]]:
+def _read_settings() -> tuple[dict[str, str | int], dict[str, bool | int | str]]:
     """
     Function to read the local SQLite settings at import time.
 
@@ -22,7 +22,7 @@ def _read_settings() -> Tuple[Dict[str, Union[str,int]],
     """
     # For the limits, there are known default values
     # (known from https://www.sqlite.org/limits.html)
-    DEFAULT_LIMITS: Dict[str, Optional[Union[str, int]]]
+    DEFAULT_LIMITS: dict[str, str | int]
     DEFAULT_LIMITS = {'MAX_ATTACHED': 10,
                       'MAX_COLUMN': 2000,
                       'MAX_COMPOUND_SELECT': 500,
@@ -39,7 +39,7 @@ def _read_settings() -> Tuple[Dict[str, Union[str,int]],
     opt_num = 0
     resp = ''
 
-    limits: Dict[str, Optional[Union[str, int]]]
+    limits: dict[str, str | int]
     limits = DEFAULT_LIMITS.copy()
     settings = {}
 
@@ -51,16 +51,21 @@ def _read_settings() -> Tuple[Dict[str, Union[str,int]],
     while resp is not None:
         opt_num += 1
         lst = resp.split('=')
-        val: Optional[Union[str, int]]
+        val: str | int | None
         if len(lst) == 2:
-            (param, val) = lst
-            if val.isnumeric():
-                val = int(val)
+            (param, val_str) = lst
+            if val_str.isnumeric():
+                val = int(val_str)
+            else:
+                val = val_str
         else:
             param = lst[0]
             val = None
 
         if param in DEFAULT_LIMITS.keys():
+            # we are only expecting
+            # None val for a setting
+            assert val is not None
             limits.update({param: val})
         elif val:
             settings.update({param: val})

@@ -1,36 +1,34 @@
+import pytest
+from packaging import version
+
 import qcodes as qc
 import qcodes.utils.installation_info as ii
+from qcodes.utils import (
+    QCoDeSDeprecationWarning,
+    convert_legacy_version_to_supported_version,
+    get_all_installed_package_versions,
+    is_qcodes_installed_editably,
+)
 
 # The get_* functions from installation_info are hard to meaningfully test,
 # but we can at least test that they execute without errors
 
 
-def test_get_qcodes_version():
-    assert ii.get_qcodes_version() == qc.__version__
+def test_get_qcodes_version() -> None:
+    with pytest.warns(QCoDeSDeprecationWarning):
+        version = ii.get_qcodes_version()
+
+    assert version == qc.__version__
 
 
-def test_get_qcodes_requirements():
-    reqs = ii.get_qcodes_requirements()
-
-    assert isinstance(reqs, list)
-    assert len(reqs) > 0
-
-
-def test_get_qcodes_requirements_versions():
-    req_vs = ii.get_qcodes_requirements_versions()
-
-    assert isinstance(req_vs, dict)
-    assert len(req_vs) > 0
-
-
-def test_is_qcodes_installed_editably():
-    answer = ii.is_qcodes_installed_editably()
+def test_is_qcodes_installed_editably() -> None:
+    answer = is_qcodes_installed_editably()
 
     assert isinstance(answer, bool)
 
 
-def test_get_all_installed_package_versions():
-    ipvs = ii.get_all_installed_package_versions()
+def test_get_all_installed_package_versions() -> None:
+    ipvs = get_all_installed_package_versions()
 
     assert isinstance(ipvs, dict)
     assert len(ipvs) > 0
@@ -40,12 +38,29 @@ def test_get_all_installed_package_versions():
         assert isinstance(v, str)
 
 
-def test_convert_legacy_version_to_supported_version():
+def test_convert_legacy_version_to_supported_version() -> None:
+    def assert_version_str(legacy_verstr: str, expected_converted_ver_str: str) -> None:
+        converted_version_str = convert_legacy_version_to_supported_version(
+            legacy_verstr
+        )
+        assert converted_version_str == expected_converted_ver_str
+        assert version.parse(converted_version_str) == version.parse(
+            expected_converted_ver_str
+        )
+
     legacy_verstr = "a.1.4"
-    assert ii.convert_legacy_version_to_supported_version(legacy_verstr) == "65.1.4"
+    expected_converted_ver_str = "65.1.4"
+    assert_version_str(legacy_verstr, expected_converted_ver_str)
+
 
     legacy_verstr = "10.4.7"
-    assert ii.convert_legacy_version_to_supported_version(legacy_verstr) == "10.4.7"
+    expected_converted_ver_str = "10.4.7"
+    assert_version_str(legacy_verstr, expected_converted_ver_str)
 
     legacy_verstr = "C.2.1"
-    assert ii.convert_legacy_version_to_supported_version(legacy_verstr) == "67.2.1"
+    expected_converted_ver_str = "67.2.1"
+    assert_version_str(legacy_verstr, expected_converted_ver_str)
+
+    legacy_verstr = "A.02.17-02.40-02.17-00.52-04-01"
+    expected_converted_ver_str = "65.02.17"
+    assert_version_str(legacy_verstr, expected_converted_ver_str)

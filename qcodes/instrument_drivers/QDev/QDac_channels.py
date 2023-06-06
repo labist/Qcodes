@@ -5,23 +5,18 @@ import time
 from functools import partial
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
-import pyvisa as visa
+import pyvisa
+import pyvisa.constants
 from pyvisa.resources.serial import SerialInstrument
 
-from qcodes.instrument.base import Instrument
-from qcodes.instrument.channel import (
-    ChannelList,
-    InstrumentChannel,
-    MultiChannelInstrumentParameter,
-)
-from qcodes.instrument.parameter import ParamRawDataType
-from qcodes.instrument.visa import VisaInstrument
-from qcodes.utils import validators as vals
+from qcodes import validators as vals
+from qcodes.instrument import ChannelList, Instrument, InstrumentChannel, VisaInstrument
+from qcodes.parameters import MultiChannelInstrumentParameter, ParamRawDataType
 
 log = logging.getLogger(__name__)
 
 
-class QDacChannel(InstrumentChannel):
+class QDevQDacChannel(InstrumentChannel):
     """
     A single output channel of the QDac.
 
@@ -124,7 +119,10 @@ class QDacChannel(InstrumentChannel):
         return snap
 
 
-class QDacMultiChannelParameter(MultiChannelInstrumentParameter):
+QDacChannel = QDevQDacChannel
+
+
+class QDevQDacMultiChannelParameter(MultiChannelInstrumentParameter):
     """
     The class to be returned by __getattr__ of the ChannelList. Here customised
     for fast multi-readout of voltages.
@@ -157,7 +155,10 @@ class QDacMultiChannelParameter(MultiChannelInstrumentParameter):
         return output
 
 
-class QDac(VisaInstrument):
+QDacMultiChannelParameter = QDevQDacMultiChannelParameter
+
+
+class QDevQDac(VisaInstrument):
     """
     Channelised driver for the QDev digital-analog converter QDac
 
@@ -197,8 +198,8 @@ class QDac(VisaInstrument):
         self._get_status_performed = False
         # This is the baud rate on power-up. It can be changed later but
         # you must start out with this value.
-        handle.baud_rate = 480600
-        handle.parity = visa.constants.Parity(0)
+        handle.baud_rate = 460800
+        handle.parity = pyvisa.constants.Parity(0)
         handle.data_bits = 8
         self.set_terminator('\n')
         # TODO: do we want a method for write termination too?
@@ -226,12 +227,16 @@ class QDac(VisaInstrument):
         self.chan_range = range(1, 1 + self.num_chans)
         self.channel_validator = vals.Ints(1, self.num_chans)
 
-        channels = ChannelList(self, "Channels", QDacChannel,
-                               snapshotable=False,
-                               multichan_paramclass=QDacMultiChannelParameter)
+        channels = ChannelList(
+            self,
+            "Channels",
+            QDevQDacChannel,
+            snapshotable=False,
+            multichan_paramclass=QDevQDacMultiChannelParameter,
+        )
 
         for i in self.chan_range:
-            channel = QDacChannel(self, f'chan{i:02}', i)
+            channel = QDevQDacChannel(self, f"chan{i:02}", i)
             channels.append(channel)
             # Should raise valueerror if name is invalid (silently fails now)
             self.add_submodule(f"ch{i:02}", channel)
@@ -263,7 +268,7 @@ class QDac(VisaInstrument):
         self.verbose.set(False)
         self.connect_message()
         log.info('[*] Querying all channels for voltages and currents...')
-        self._update_cache(readcurrents=update_currents)
+        self.version = self._update_cache(readcurrents=update_currents)
         self._update_currents = update_currents
         log.info('[+] Done')
 
@@ -320,7 +325,7 @@ class QDac(VisaInstrument):
             # happen inside _rampvoltage
             self._rampvoltage(chan, fg, v_start, v_set, time)
         else:
-            v_dac = QDac._get_v_dac_from_v_exp(channel, v_set)
+            v_dac = QDevQDac._get_v_dac_from_v_exp(channel, v_set)
             # set the mode back to DC in case it had been changed
             # and then set the voltage
             self.write(f'wav {chan} 0 0 0;set {chan} {v_dac:.6f}')
@@ -344,16 +349,16 @@ class QDac(VisaInstrument):
     # commands.
     # Then we have the general relationship`v_exp = v_dac * attenuation`,
     @staticmethod
-    def _get_attenuation(channel: QDacChannel) -> float:
+    def _get_attenuation(channel: QDevQDacChannel) -> float:
         return 0.1 if channel.vrange.cache() == 1 else 1.0
 
     @staticmethod
-    def _get_v_dac_from_v_exp(channel: QDacChannel, v_exp: float) -> float:
-        return v_exp / QDac._get_attenuation(channel)
+    def _get_v_dac_from_v_exp(channel: QDevQDacChannel, v_exp: float) -> float:
+        return v_exp / QDevQDac._get_attenuation(channel)
 
     @staticmethod
-    def _get_v_exp_from_v_dac(channel: QDacChannel, v_dac: float) -> float:
-        return v_dac * QDac._get_attenuation(channel)
+    def _get_v_exp_from_v_dac(channel: QDevQDacChannel, v_dac: float) -> float:
+        return v_dac * QDevQDac._get_attenuation(channel)
 
     def _set_vrange(self, chan: int, switchint: int) -> None:
         """
@@ -372,10 +377,10 @@ class QDac(VisaInstrument):
         # for definitions.
         channel = self.channels[chan-1]
         if channel.vrange.cache() != switchint:
-            v_dac = QDac._get_v_dac_from_v_exp(channel, channel.v.cache())
+            v_dac = QDevQDac._get_v_dac_from_v_exp(channel, channel.v.cache())
             channel.vrange.cache.set(switchint)
             self._update_v_validator(channel, switchint)
-            channel.v.cache.set(QDac._get_v_exp_from_v_dac(channel, v_dac))
+            channel.v.cache.set(QDevQDac._get_v_exp_from_v_dac(channel, v_dac))
 
     def _get_vrange(self, chan: int) -> float:
         """
@@ -403,7 +408,7 @@ class QDac(VisaInstrument):
         """
         return 1e-6*self._num_verbose(s)
 
-    def _update_cache(self, readcurrents: bool = False) -> None:
+    def _update_cache(self, readcurrents: bool = False) -> str:
         r"""
         Function to query the instrument and get the status of all channels,
         e.g. voltage (``v``), voltage range (``vrange``), and current range (``irange``)
@@ -425,12 +430,13 @@ class QDac(VisaInstrument):
         0-based, ie chan1 is out[0]
         """
 
-        def validate_version(version_line: str) -> None:
-            if version_line.startswith('Software Version: '):
-                self.version = version_line.strip().split(': ')[1]
+        def validate_version(version_line: str) -> str:
+            if version_line.startswith("Software Version: "):
+                version = version_line.strip().split(": ")[1]
             else:
                 self._wait_and_clear()
                 raise ValueError('unrecognized version line: ' + version_line)
+            return version
 
         def validate_header(header_line: str) -> None:
             headers = header_line.lower().strip('\r\n').split('\t')
@@ -450,7 +456,7 @@ class QDac(VisaInstrument):
             i_range = i_range_trans[i_range_str.strip()]
             return chan, i_range, v_range, v_dac
 
-        validate_version(self.ask('status'))
+        version = validate_version(self.ask("status"))
         validate_header(self.read())
 
         chans_left = set(self.chan_range)
@@ -464,12 +470,13 @@ class QDac(VisaInstrument):
             channel.vrange.cache.set(v_range)
             self._update_v_validator(channel, v_range)
             channel.irange.cache.set(i_range)
-            channel.v.cache.set(QDac._get_v_exp_from_v_dac(channel, v_dac))
+            channel.v.cache.set(QDevQDac._get_v_exp_from_v_dac(channel, v_dac))
 
             chans_left.remove(chan)
 
         if readcurrents:
             self._read_currents()
+        return version
 
     def _read_currents(self) -> None:
         for chan in range(1, self.num_chans + 1):
@@ -477,7 +484,7 @@ class QDac(VisaInstrument):
             _ = param.get()
 
     @staticmethod
-    def _update_v_validator(channel: QDacChannel, v_range: int) -> None:
+    def _update_v_validator(channel: QDevQDacChannel, v_range: int) -> None:
         range = (-10.01, 10.01) if v_range == 0 else (-1.001, 1.001)
         channel.v.vals = vals.Numbers(*range)
 
@@ -740,3 +747,11 @@ class QDac(VisaInstrument):
                 line += f": {returnmap[pp][value]}"
                 line += ". "
             print(line)
+
+
+class QDac(QDevQDac):
+    """
+    Backwards compatibility alias for QDevQDac driver
+    """
+
+    pass

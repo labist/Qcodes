@@ -1,11 +1,10 @@
-from typing import Any, TypeVar, Sequence, Set, Tuple, Callable
-
 import re
 import warnings
 from functools import wraps
+from typing import Any, Callable, Sequence, Set, Tuple, TypeVar
 
-from qcodes import VisaInstrument
-from qcodes.utils.validators import MultiType, Ints, Enum, Lists
+from qcodes.instrument import VisaInstrument
+from qcodes.validators import Enum, Ints, Lists, MultiType
 
 T = TypeVar('T')
 
@@ -26,10 +25,12 @@ def post_execution_status_poll(func: Callable[..., T]) -> Callable[..., T]:
 
         stb = self.get_status()
         if stb:
-            warnings.warn(f"Instrument status byte indicates an error occured "
-                          f"(value of STB was: {stb})! Use `get_error` method "
-                          f"to poll error message.",
-                          stacklevel=2)
+            warnings.warn(
+                f"Instrument status byte indicates an error occurred "
+                f"(value of STB was: {stb})! Use `get_error` method "
+                f"to poll error message.",
+                stacklevel=2,
+            )
         return retval
 
     return wrapper
@@ -350,12 +351,27 @@ class KeysightB220X(VisaInstrument):
         """Generate a set of (input, output) tuples from a SCPI channel
         list string.
         """
-        pattern = r'(?P<card>\d{0,1}?)(?P<input>\d{1,2})(?P<output>\d{2})(?=(' \
-                  r'?:[,\)\r\n]|$))'
-        return {(int(match['input']), int(match['output'])) for match in
-                re.finditer(pattern, channel_list)}
+        pattern = (
+            r"(?P<card>\d{0,1}?)(?P<input>\d{1,2})(?P<output>\d{2})(?=(?:[,\)\r\n]|$))"
+        )
+        return {
+            (int(match["input"]), int(match["output"]))
+            for match in re.finditer(pattern, channel_list)
+        }
 
     def to_channel_list(self, paths: Sequence[Tuple[int, int]]) -> str:
-        l = [f'{self._card:01d}{i:02d}{o:02d}' for i, o in paths]
-        channel_list = f"(@{','.join(l)})"
+        chan = [f"{self._card:01d}{i:02d}{o:02d}" for i, o in paths]
+        channel_list = f"(@{','.join(chan)})"
         return channel_list
+
+
+class KeysightB2200(KeysightB220X):
+    """
+    QCodes driver for B2200
+    """
+
+
+class KeysightB2201(KeysightB220X):
+    """
+    QCodes driver for B2201
+    """

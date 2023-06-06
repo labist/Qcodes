@@ -1,19 +1,22 @@
-from typing import Any, Tuple, List
 import logging
 from collections import namedtuple
 from itertools import chain
+from typing import Any, List, Tuple
 
 log = logging.getLogger(__name__)
 
 try:
-    import win32com.client
-    import pythoncom
-    from pythoncom import VT_BYREF, VT_R8, VT_I4
+    import pythoncom  # pyright: ignore[reportMissingModuleSource]
+    import win32com.client  # pyright: ignore[reportMissingModuleSource]
+    from pythoncom import (  # pyright: ignore[reportMissingModuleSource]
+        VT_BYREF,
+        VT_I4,
+        VT_R8,
+    )
 except ImportError as e:
-    message = ('To use the DynaCool Driver, please install win32com.'
-               ' Installation can be done with pip install pypiwin32com')
+    message = "To use the DynaCool Driver, please install pywin32."
     log.exception(message)
-    raise ImportError(message)
+    raise ImportError(message) from e
 
 
 CmdArgs = namedtuple('CmdArgs', 'cmd args')

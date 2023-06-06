@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 from math import ceil
 from string import ascii_uppercase
-from typing import Dict
 
 import hypothesis.strategies as hst
 import numpy as np
@@ -9,7 +10,182 @@ from hypothesis import HealthCheck, given, settings
 
 from qcodes.dataset.descriptions.detect_shapes import detect_shape_of_measurement
 from qcodes.dataset.measurements import Measurement
-from qcodes.instrument.parameter import expand_setpoints_helper
+
+
+@pytest.mark.parametrize("bg_writing", [True, False])
+@pytest.mark.parametrize("set_shape", [True, False])
+@pytest.mark.parametrize("in_memory_cache", [True, False])
+@settings(
+    deadline=None,
+    max_examples=10,
+    suppress_health_check=(HealthCheck.function_scoped_fixture,),
+)
+@given(n_points=hst.integers(min_value=1, max_value=11))
+def test_cache_standalone(
+    experiment,
+    DMM,
+    n_points,
+    bg_writing,
+    channel_array_instrument,
+    set_shape,
+    in_memory_cache,
+) -> None:
+
+    meas1 = Measurement()
+    meas1.register_parameter(DMM.v1)
+
+    meas_parameters1 = (
+        DMM.v1,
+        channel_array_instrument.A.dummy_multi_parameter,
+        channel_array_instrument.A.dummy_scalar_multi_parameter,
+        channel_array_instrument.A.dummy_2d_multi_parameter,
+        channel_array_instrument.A.dummy_2d_multi_parameter_2,
+        channel_array_instrument.A.dummy_array_parameter,
+        channel_array_instrument.A.dummy_complex_array_parameter,
+        channel_array_instrument.A.dummy_complex,
+        channel_array_instrument.A.dummy_parameter_with_setpoints,
+        channel_array_instrument.A.dummy_parameter_with_setpoints_complex,
+    )
+    pws_shape_1 = 10
+    pws_shape_2 = 3
+    channel_array_instrument.A.dummy_start(0)
+    channel_array_instrument.A.dummy_stop(10)
+    channel_array_instrument.A.dummy_n_points(pws_shape_1)
+    channel_array_instrument.A.dummy_start_2(2)
+    channel_array_instrument.A.dummy_stop_2(7)
+    channel_array_instrument.A.dummy_n_points_2(pws_shape_2)
+
+    if set_shape:
+        meas1.set_shapes(
+            {
+                DMM.v1.full_name: (n_points,),
+                channel_array_instrument.A.dummy_multi_parameter.full_names[0]: (
+                    n_points,
+                    5,
+                ),
+                channel_array_instrument.A.dummy_multi_parameter.full_names[1]: (
+                    n_points,
+                    5,
+                ),
+                channel_array_instrument.A.dummy_scalar_multi_parameter.full_names[0]: (
+                    n_points,
+                ),
+                channel_array_instrument.A.dummy_scalar_multi_parameter.full_names[1]: (
+                    n_points,
+                ),
+                channel_array_instrument.A.dummy_scalar_multi_parameter.full_names[0]: (
+                    n_points,
+                ),
+                channel_array_instrument.A.dummy_scalar_multi_parameter.full_names[1]: (
+                    n_points,
+                ),
+                channel_array_instrument.A.dummy_2d_multi_parameter.full_names[0]: (
+                    n_points,
+                    5,
+                    3,
+                ),
+                channel_array_instrument.A.dummy_2d_multi_parameter.full_names[1]: (
+                    n_points,
+                    5,
+                    3,
+                ),
+                channel_array_instrument.A.dummy_2d_multi_parameter_2.full_names[0]: (
+                    n_points,
+                    5,
+                    3,
+                ),
+                channel_array_instrument.A.dummy_2d_multi_parameter_2.full_names[1]: (
+                    n_points,
+                    2,
+                    7,
+                ),
+                channel_array_instrument.A.dummy_array_parameter.full_name: (
+                    n_points,
+                    5,
+                ),
+                channel_array_instrument.A.dummy_complex_array_parameter.full_name: (
+                    n_points,
+                    5,
+                ),
+                channel_array_instrument.A.dummy_complex.full_name: (n_points,),
+                channel_array_instrument.A.dummy_parameter_with_setpoints.full_name: (
+                    n_points,
+                    pws_shape_1,
+                ),
+                channel_array_instrument.A.dummy_parameter_with_setpoints_complex.full_name: (
+                    n_points,
+                    pws_shape_1,
+                ),
+            }
+        )
+
+    for param in meas_parameters1:
+        meas1.register_parameter(param)
+
+    meas2 = Measurement()
+
+    meas_parameters2 = (channel_array_instrument.A.dummy_parameter_with_setpoints_2d,)
+
+    if set_shape:
+        meas2.set_shapes(
+            {meas_parameters2[0].full_name: (n_points, pws_shape_1, pws_shape_2)}
+        )
+
+    for param in meas_parameters2:
+        meas2.register_parameter(param)
+
+    with meas1.run(
+        write_in_background=bg_writing, in_memory_cache=in_memory_cache
+    ) as datasaver1:
+        with meas2.run(
+            write_in_background=bg_writing, in_memory_cache=in_memory_cache
+        ) as datasaver2:
+
+            dataset1 = datasaver1.dataset
+            dataset2 = datasaver2.dataset
+            _assert_parameter_data_is_identical(
+                dataset1.get_parameter_data(), dataset1.cache.data()
+            )
+            _assert_parameter_data_is_identical(
+                dataset2.get_parameter_data(), dataset2.cache.data()
+            )
+            for _ in range(n_points):
+
+                meas_vals1 = [(param, param.get()) for param in meas_parameters1]
+
+                datasaver1.add_result(*meas_vals1)
+                datasaver1.flush_data_to_database(block=True)
+
+                meas_vals2 = [(param, param.get()) for param in meas_parameters2]
+
+                datasaver2.add_result(*meas_vals2)
+                datasaver2.flush_data_to_database(block=True)
+
+                _assert_parameter_data_is_identical(
+                    dataset1.get_parameter_data(),
+                    dataset1.cache.data(),
+                    shaped_partial=set_shape,
+                )
+                _assert_parameter_data_is_identical(
+                    dataset2.get_parameter_data(),
+                    dataset2.cache.data(),
+                    shaped_partial=set_shape,
+                )
+    _assert_parameter_data_is_identical(
+        dataset1.get_parameter_data(), dataset1.cache.data()
+    )
+    if in_memory_cache is False:
+        assert dataset1.cache._loaded_from_completed_ds is True
+    assert dataset1.completed is True
+    assert dataset1.cache.live is in_memory_cache
+    _assert_parameter_data_is_identical(
+        dataset2.get_parameter_data(), dataset2.cache.data()
+    )
+    if in_memory_cache is False:
+        assert dataset2.cache._loaded_from_completed_ds is True
+    assert dataset2.completed is True
+    assert dataset1.cache.live is in_memory_cache
+
 
 
 @pytest.mark.parametrize("bg_writing", [True, False])
@@ -19,10 +195,17 @@ from qcodes.instrument.parameter import expand_setpoints_helper
 @settings(deadline=None, max_examples=10,
           suppress_health_check=(HealthCheck.function_scoped_fixture,))
 @given(n_points=hst.integers(min_value=1, max_value=11))
-def test_cache_1d(experiment, DAC, DMM, n_points, bg_writing,
-                  channel_array_instrument, setpoints_type,
-                  set_shape, in_memory_cache):
-
+def test_cache_1d(
+    experiment,
+    DAC,
+    DMM,
+    n_points,
+    bg_writing,
+    channel_array_instrument,
+    setpoints_type,
+    set_shape,
+    in_memory_cache,
+) -> None:
     setpoints_param, setpoints_values = _prepare_setpoints_1d(
         DAC, channel_array_instrument,
         n_points, setpoints_type
@@ -145,12 +328,19 @@ def test_cache_1d(experiment, DAC, DMM, n_points, bg_writing,
 @settings(deadline=None, max_examples=10,
           suppress_health_check=(HealthCheck.function_scoped_fixture,))
 @given(n_points=hst.integers(min_value=1, max_value=101))
-def test_cache_1d_every_other_point(experiment, DAC, DMM, n_points, bg_writing,
-                                    channel_array_instrument, setpoints_type,
-                                    in_memory_cache):
-
-    setpoints_param, setpoints_values = _prepare_setpoints_1d(DAC, channel_array_instrument,
-                                                                                   n_points, setpoints_type)
+def test_cache_1d_every_other_point(
+    experiment,
+    DAC,
+    DMM,
+    n_points,
+    bg_writing,
+    channel_array_instrument,
+    setpoints_type,
+    in_memory_cache,
+) -> None:
+    setpoints_param, setpoints_values = _prepare_setpoints_1d(
+        DAC, channel_array_instrument, n_points, setpoints_type
+    )
 
     meas = Measurement()
 
@@ -198,13 +388,25 @@ def test_cache_1d_every_other_point(experiment, DAC, DMM, n_points, bg_writing,
 
 @pytest.mark.parametrize("bg_writing", [True, False])
 @pytest.mark.parametrize("in_memory_cache", [True, False])
-@settings(deadline=None, max_examples=10,
-          suppress_health_check=(HealthCheck.function_scoped_fixture,))
-@given(n_points_outer=hst.integers(min_value=1, max_value=11),
-       n_points_inner=hst.integers(min_value=1, max_value=11))
-def test_cache_2d(experiment, DAC, DMM, n_points_outer,
-                  n_points_inner, bg_writing, channel_array_instrument,
-                  in_memory_cache):
+@settings(
+    deadline=None,
+    max_examples=10,
+    suppress_health_check=(HealthCheck.function_scoped_fixture,),
+)
+@given(
+    n_points_outer=hst.integers(min_value=1, max_value=11),
+    n_points_inner=hst.integers(min_value=1, max_value=11),
+)
+def test_cache_2d(
+    experiment,
+    DAC,
+    DMM,
+    n_points_outer,
+    n_points_inner,
+    bg_writing,
+    channel_array_instrument,
+    in_memory_cache,
+) -> None:
     meas = Measurement()
 
     meas.register_parameter(DAC.ch1)
@@ -253,12 +455,25 @@ def test_cache_2d(experiment, DAC, DMM, n_points_outer,
 @pytest.mark.parametrize("bg_writing", [True, False])
 @pytest.mark.parametrize("storage_type", ['numeric', 'array', None])
 @pytest.mark.parametrize("in_memory_cache", [True, False])
-@settings(deadline=None, max_examples=10,
-          suppress_health_check=(HealthCheck.function_scoped_fixture,))
-@given(n_points_outer=hst.integers(min_value=1, max_value=11),
-       n_points_inner=hst.integers(min_value=1, max_value=11))
-def test_cache_2d_num_with_multiple_storage_types(experiment, DAC, DMM, n_points_outer,
-                      n_points_inner, bg_writing, storage_type, in_memory_cache):
+@settings(
+    deadline=None,
+    max_examples=10,
+    suppress_health_check=(HealthCheck.function_scoped_fixture,),
+)
+@given(
+    n_points_outer=hst.integers(min_value=1, max_value=11),
+    n_points_inner=hst.integers(min_value=1, max_value=11),
+)
+def test_cache_2d_num_with_multiple_storage_types(
+    experiment,
+    DAC,
+    DMM,
+    n_points_outer,
+    n_points_inner,
+    bg_writing,
+    storage_type,
+    in_memory_cache,
+) -> None:
     meas = Measurement()
 
     meas.register_parameter(DAC.ch1, paramtype=storage_type)
@@ -281,7 +496,7 @@ def test_cache_2d_num_with_multiple_storage_types(experiment, DAC, DMM, n_points
                 n_rows_written += 1
                 data = dataset.cache.data()
                 if array_used:
-                    shape = (n_rows_written, 1)
+                    shape: tuple[int, ...] = (n_rows_written, 1)
                 else:
                     shape = (n_rows_written,)
                 assert data[DMM.v1.full_name][DMM.v1.full_name].shape == shape
@@ -298,8 +513,15 @@ def test_cache_2d_num_with_multiple_storage_types(experiment, DAC, DMM, n_points
 @settings(deadline=None, max_examples=10,
           suppress_health_check=(HealthCheck.function_scoped_fixture,))
 @given(n_points=hst.integers(min_value=1, max_value=21))
-def test_cache_1d_array_in_1d(experiment, DAC, channel_array_instrument,
-                              n_points, bg_writing, storage_type, in_memory_cache):
+def test_cache_1d_array_in_1d(
+    experiment,
+    DAC,
+    channel_array_instrument,
+    n_points,
+    bg_writing,
+    storage_type,
+    in_memory_cache,
+) -> None:
     param = channel_array_instrument.A.dummy_array_parameter
     meas = Measurement()
     meas.register_parameter(DAC.ch1, paramtype=storage_type)
@@ -318,7 +540,7 @@ def test_cache_1d_array_in_1d(experiment, DAC, channel_array_instrument,
             data = dataset.cache.data()
             n_rows_written = i+1
             if array_used:
-                shape = (n_rows_written, param.shape[0])
+                shape: tuple[int, ...] = (n_rows_written, param.shape[0])
             else:
                 shape = (n_rows_written * param.shape[0],)
             assert data[param.full_name][DAC.ch1.full_name].shape == shape
@@ -336,8 +558,15 @@ def test_cache_1d_array_in_1d(experiment, DAC, channel_array_instrument,
 @settings(deadline=None, max_examples=10,
           suppress_health_check=(HealthCheck.function_scoped_fixture,))
 @given(n_points=hst.integers(min_value=1, max_value=21))
-def test_cache_multiparam_in_1d(experiment, DAC, channel_array_instrument,
-                                n_points, bg_writing, storage_type, in_memory_cache):
+def test_cache_multiparam_in_1d(
+    experiment,
+    DAC,
+    channel_array_instrument,
+    n_points,
+    bg_writing,
+    storage_type,
+    in_memory_cache,
+) -> None:
     param = channel_array_instrument.A.dummy_2d_multi_parameter
     meas = Measurement()
     meas.register_parameter(DAC.ch1, paramtype=storage_type)
@@ -375,14 +604,21 @@ def test_cache_multiparam_in_1d(experiment, DAC, channel_array_instrument,
 @settings(deadline=None, max_examples=10,
           suppress_health_check=(HealthCheck.function_scoped_fixture,))
 @given(n_points=hst.integers(min_value=1, max_value=21))
-def test_cache_complex_array_param_in_1d(experiment, DAC, channel_array_instrument,
-                                         n_points, bg_writing, storage_type, outer_param_type,
-                                         in_memory_cache):
+def test_cache_complex_array_param_in_1d(
+    experiment,
+    DAC,
+    channel_array_instrument,
+    n_points,
+    bg_writing,
+    storage_type,
+    outer_param_type,
+    in_memory_cache,
+) -> None:
     param = channel_array_instrument.A.dummy_complex_array_parameter
     meas = Measurement()
     if outer_param_type == 'numeric':
         outer_param = DAC.ch1
-        outer_setpoints = np.linspace(-1, 1, n_points)
+        outer_setpoints: np.ndarray | list[str] = np.linspace(-1, 1, n_points)
         outer_storage_type = storage_type
     else:
         outer_param = channel_array_instrument.A.dummy_text
@@ -421,10 +657,16 @@ def test_cache_complex_array_param_in_1d(experiment, DAC, channel_array_instrume
 @settings(deadline=None, max_examples=10,
           suppress_health_check=(HealthCheck.function_scoped_fixture,))
 @given(n_points=hst.integers(min_value=1, max_value=11))
-def test_cache_1d_shape(experiment, DAC, DMM, n_points, bg_writing,
-                  channel_array_instrument, setpoints_type,
-                  in_memory_cache):
-
+def test_cache_1d_shape(
+    experiment,
+    DAC,
+    DMM,
+    n_points,
+    bg_writing,
+    channel_array_instrument,
+    setpoints_type,
+    in_memory_cache,
+) -> None:
     setpoints_param, setpoints_values = _prepare_setpoints_1d(
         DAC, channel_array_instrument,
         n_points, setpoints_type
@@ -505,23 +747,28 @@ def test_cache_1d_shape(experiment, DAC, DMM, n_points, bg_writing,
 
 
 @pytest.mark.parametrize("bg_writing", [True, False])
-@pytest.mark.parametrize("cache_size", ["too_large",
-                                        "correct",
-                                        "too_small"])
-@settings(deadline=None, max_examples=10,
-          suppress_health_check=(HealthCheck.function_scoped_fixture,))
-@given(n_points_outer=hst.integers(min_value=1, max_value=11),
-       n_points_inner=hst.integers(min_value=1, max_value=11),
-       pws_n_points=hst.integers(min_value=1, max_value=11))
-def test_cache_2d_shape(experiment,
-                        DAC,
-                        DMM,
-                        n_points_outer,
-                        n_points_inner,
-                        pws_n_points,
-                        bg_writing,
-                        channel_array_instrument,
-                        cache_size):
+@pytest.mark.parametrize("cache_size", ["too_large", "correct", "too_small"])
+@settings(
+    deadline=None,
+    max_examples=10,
+    suppress_health_check=(HealthCheck.function_scoped_fixture,),
+)
+@given(
+    n_points_outer=hst.integers(min_value=1, max_value=11),
+    n_points_inner=hst.integers(min_value=1, max_value=11),
+    pws_n_points=hst.integers(min_value=1, max_value=11),
+)
+def test_cache_2d_shape(
+    experiment,
+    DAC,
+    DMM,
+    n_points_outer,
+    n_points_inner,
+    pws_n_points,
+    bg_writing,
+    channel_array_instrument,
+    cache_size,
+) -> None:
     meas = Measurement()
 
     meas.register_parameter(DAC.ch1)
@@ -698,9 +945,9 @@ def _assert_partial_cache_is_as_expected(
 
 
 def _assert_parameter_data_is_identical(
-        expected: Dict[str, Dict[str, np.ndarray]],
-        actual: Dict[str, Dict[str, np.ndarray]],
-        shaped_partial: bool = False
+    expected: dict[str, dict[str, np.ndarray]],
+    actual: dict[str, dict[str, np.ndarray]],
+    shaped_partial: bool = False,
 ):
     assert expected.keys() == actual.keys()
     # there is a tiny round trip loss in accuracy
@@ -754,6 +1001,7 @@ def _prepare_setpoints_1d(DAC, channel_array_instrument, n_points, setpoints_typ
         setpoints_values = np.linspace(-1, 1, n_points)
     else:
         setpoints_param = channel_array_instrument.A.dummy_text
-        setpoints_values = [l*(i+1) for i, l in
-                            enumerate(ascii_uppercase*(n_points//26+1))][0:n_points]
+        setpoints_values = [
+            j * (i + 1) for i, j in enumerate(ascii_uppercase * (n_points // 26 + 1))
+        ][0:n_points]
     return setpoints_param, setpoints_values

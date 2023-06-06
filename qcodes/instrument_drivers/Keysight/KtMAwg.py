@@ -1,24 +1,22 @@
-from .KtMAwgDefs import *
-
 import ctypes
 from functools import partial
-from typing import Dict, Optional, Any
+from typing import Any, Dict, Optional
 
-from qcodes.instrument.base import Instrument
-from qcodes.instrument.channel import InstrumentChannel
-from qcodes.utils.validators import Numbers
-from qcodes.utils.helpers import create_on_off_val_mapping
+from qcodes.instrument import Instrument, InstrumentChannel
+from qcodes.parameters import create_on_off_val_mapping
+from qcodes.validators import Numbers
+
+from .KtMAwgDefs import *  # noqa F403
 
 
-class KtMAWGChannel(InstrumentChannel):
+class KeysightM9336AAWGChannel(InstrumentChannel):
     """
     Represent the three channels of the Keysight KTM Awg driver.
     The channels can be independently controlled and programmed with
     seperate waveforms.
     """
 
-    def __init__(self, parent: 'KtMAwg', name: str, chan: int) -> None:
-
+    def __init__(self, parent: "KeysightM9336A", name: str, chan: int) -> None:
         # Sanity Check inputs
         if name not in ["ch1", "ch2", "ch3"]:
             raise ValueError(f"Invalid channel: {name}, expecting ch1:ch3")
@@ -218,7 +216,7 @@ class KtMAWGChannel(InstrumentChannel):
         )
 
 
-class KtMAwg(Instrument):
+class KeysightM9336A(Instrument):
     """
     AWG Driver for the Keysight M9336A PXIe I/Q Arbitrary Waveform
     Generator. This driver provides a simple wrapper around the
@@ -245,7 +243,7 @@ class KtMAwg(Instrument):
 
         for ch_num in [1, 2, 3]:
             ch_name = f"ch{ch_num}"
-            channel = KtMAWGChannel(
+            channel = KeysightM9336AAWGChannel(
                 self,
                 ch_name,
                 ch_num,
@@ -397,3 +395,10 @@ class KtMAwg(Instrument):
     def close(self) -> None:
         self._dll.KtMAwg_close(self._session)
         super().close()
+
+
+KtMAWGChannel = KeysightM9336AAWGChannel
+"Alias for backwards compatibility"
+
+KtMAwg = KeysightM9336A
+"Alias for backwards compatibility"

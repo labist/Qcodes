@@ -3,13 +3,13 @@ from typing import Any
 import numpy as np
 from packaging import version
 
-from qcodes.utils import validators
+from qcodes import validators
 
 from .ATS import AlazarTech_ATS
 from .utils import TraceParameter
 
 
-class AlazarTech_ATS9360(AlazarTech_ATS):
+class AlazarTechATS9360(AlazarTech_ATS):
     """
     This class is the driver for the ATS9360 board
     it inherits from the ATS base class
@@ -373,3 +373,11 @@ class AlazarTech_ATS9360(AlazarTech_ATS):
             disable_mask = ~np.uint32(1 << 26)
             new_value = current_value & disable_mask
         self._write_register(58, int(new_value))
+
+
+class AlazarTech_ATS9360(AlazarTechATS9360):
+    """
+    Alias for backwards compatibility. Will eventually be deprecated and removed
+    """
+
+    pass

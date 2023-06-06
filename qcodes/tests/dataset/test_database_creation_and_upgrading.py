@@ -5,28 +5,33 @@ from contextlib import contextmanager
 from copy import deepcopy
 
 import pytest
+from pytest import LogCaptureFixture
 
 import qcodes as qc
 import qcodes.dataset.descriptions.versioning.serialization as serial
 import qcodes.tests.dataset
-from qcodes import new_data_set, new_experiment
-from qcodes.dataset.data_set import load_by_counter, load_by_id, load_by_run_spec
+from qcodes.dataset import (
+    ConnectionPlus,
+    connect,
+    initialise_database,
+    initialise_or_create_database_at,
+    load_by_counter,
+    load_by_id,
+    load_by_run_spec,
+    new_data_set,
+    new_experiment,
+)
+from qcodes.dataset.data_set import DataSet
 from qcodes.dataset.descriptions.dependencies import InterDependencies_
 from qcodes.dataset.descriptions.param_spec import ParamSpecBase
 from qcodes.dataset.descriptions.versioning.v0 import InterDependencies
 from qcodes.dataset.guids import parse_guid
-from qcodes.dataset.sqlite.connection import ConnectionPlus, atomic_transaction
-from qcodes.dataset.sqlite.database import (
-    connect,
-    get_db_version_and_newest_available_version,
-    initialise_database,
-    initialise_or_create_database_at,
-)
+from qcodes.dataset.sqlite.connection import atomic_transaction
+from qcodes.dataset.sqlite.database import get_db_version_and_newest_available_version
 
 # pylint: disable=unused-import
 from qcodes.dataset.sqlite.db_upgrades import (
     _latest_available_version,
-    get_user_version,
     perform_db_upgrade,
     perform_db_upgrade_0_to_1,
     perform_db_upgrade_1_to_2,
@@ -37,11 +42,15 @@ from qcodes.dataset.sqlite.db_upgrades import (
     perform_db_upgrade_6_to_7,
     perform_db_upgrade_7_to_8,
     perform_db_upgrade_8_to_9,
-    set_user_version,
 )
+from qcodes.dataset.sqlite.db_upgrades.version import get_user_version, set_user_version
 from qcodes.dataset.sqlite.queries import get_run_description, update_GUIDs
-from qcodes.dataset.sqlite.query_helpers import is_column_in_table, one
-from qcodes.tests.common import error_caused_by
+from qcodes.dataset.sqlite.query_helpers import (
+    get_description_map,
+    is_column_in_table,
+    one,
+)
+from qcodes.tests.common import error_caused_by, skip_if_no_fixtures
 from qcodes.tests.dataset.conftest import temporarily_copied_DB
 
 fixturepath = os.sep.join(qcodes.tests.dataset.__file__.split(os.sep)[:-1])
@@ -69,28 +78,31 @@ LATEST_VERSION_ARG = -1
 
 
 @pytest.mark.parametrize('ver', VERSIONS + (LATEST_VERSION_ARG,))
-def test_connect_upgrades_user_version(ver):
+def test_connect_upgrades_user_version(ver) -> None:
     expected_version = ver if ver != LATEST_VERSION_ARG else LATEST_VERSION
     conn = connect(':memory:', version=ver)
     assert expected_version == get_user_version(conn)
 
 
 @pytest.mark.parametrize('version', VERSIONS + (LATEST_VERSION_ARG,))
-def test_tables_exist(empty_temp_db, version):
-    conn = connect(qc.config["core"]["db_location"],
-                   qc.config["core"]["db_debug"],
-                   version=version)
-    cursor = conn.execute("select sql from sqlite_master"
-                          " where type = 'table'")
-    expected_tables = ['experiments', 'runs', 'layouts', 'dependencies']
+def test_tables_exist(empty_temp_db, version) -> None:
+    conn = connect(
+        qc.config["core"]["db_location"], qc.config["core"]["db_debug"], version=version
+    )
+    query = """
+    SELECT sql FROM sqlite_master
+    WHERE type = 'table'
+    """
+    cursor = conn.execute(query)
+    expected_tables = ["experiments", "runs", "layouts", "dependencies"]
     rows = [row for row in cursor]
     assert len(rows) == len(expected_tables)
-    for row, expected_table in zip(rows, expected_tables):
-        assert expected_table in row['sql']
+    for (sql,), expected_table in zip(rows, expected_tables):
+        assert expected_table in sql
     conn.close()
 
 
-def test_initialise_database_at_for_nonexisting_db(tmp_path):
+def test_initialise_database_at_for_nonexisting_db(tmp_path) -> None:
     db_location = str(tmp_path / 'temp.db')
     assert not os.path.exists(db_location)
 
@@ -100,7 +112,17 @@ def test_initialise_database_at_for_nonexisting_db(tmp_path):
     assert qc.config["core"]["db_location"] == db_location
 
 
-def test_initialise_database_at_for_existing_db(tmp_path):
+def test_initialise_database_at_for_nonexisting_db_pathlib_path(tmp_path) -> None:
+    db_location = tmp_path / "temp.db"
+    assert not db_location.exists()
+
+    initialise_or_create_database_at(db_location)
+
+    assert db_location.exists()
+    assert qc.config["core"]["db_location"] == str(db_location)
+
+
+def test_initialise_database_at_for_existing_db(tmp_path) -> None:
     # Define DB location
     db_location = str(tmp_path / 'temp.db')
     assert not os.path.exists(db_location)
@@ -121,7 +143,7 @@ def test_initialise_database_at_for_existing_db(tmp_path):
     assert qc.config["core"]["db_location"] == db_location
 
 
-def test_perform_actual_upgrade_0_to_1():
+def test_perform_actual_upgrade_0_to_1() -> None:
     # we cannot use the empty_temp_db, since that has already called connect
     # and is therefore latest version already
 
@@ -129,10 +151,7 @@ def test_perform_actual_upgrade_0_to_1():
 
     dbname_old = os.path.join(v0fixpath, 'empty.db')
 
-    if not os.path.exists(dbname_old):
-        pytest.skip("No db-file fixtures found. You can generate test db-files"
-                    " using the scripts in the "
-                    "https://github.com/QCoDeS/qcodes_generate_test_db/ repo")
+    skip_if_no_fixtures(dbname_old)
 
     with temporarily_copied_DB(dbname_old, debug=False, version=0) as conn:
 
@@ -152,15 +171,13 @@ def test_perform_actual_upgrade_0_to_1():
         assert len(c.fetchall()) == 0
 
 
-def test_perform_actual_upgrade_1_to_2():
+def test_perform_actual_upgrade_1_to_2() -> None:
 
     v1fixpath = os.path.join(fixturepath, 'db_files', 'version1')
 
     dbname_old = os.path.join(v1fixpath, 'empty.db')
 
-    if not os.path.exists(dbname_old):
-        pytest.skip("No db-file fixtures found. You can generate test db-files"
-                    " using the scripts in the legacy_DB_generation folder")
+    skip_if_no_fixtures(dbname_old)
 
     with temporarily_copied_DB(dbname_old, debug=False, version=1) as conn:
 
@@ -182,16 +199,13 @@ def test_perform_actual_upgrade_1_to_2():
         assert len(c.fetchall()) == 2
 
 
-def test_perform_actual_upgrade_2_to_3_empty():
+def test_perform_actual_upgrade_2_to_3_empty() -> None:
 
     v2fixpath = os.path.join(fixturepath, 'db_files', 'version2')
 
     dbname_old = os.path.join(v2fixpath, 'empty.db')
 
-    if not os.path.exists(dbname_old):
-        pytest.skip("No db-file fixtures found. You can generate test db-files"
-                    " using the scripts in the "
-                    "https://github.com/QCoDeS/qcodes_generate_test_db/ repo")
+    skip_if_no_fixtures(dbname_old)
 
     with temporarily_copied_DB(dbname_old, debug=False, version=2) as conn:
 
@@ -212,32 +226,26 @@ def test_perform_actual_upgrade_2_to_3_empty():
         assert len(c.fetchall()) == 0
 
 
-def test_perform_actual_upgrade_2_to_3_empty_runs():
+def test_perform_actual_upgrade_2_to_3_empty_runs() -> None:
 
     v2fixpath = os.path.join(fixturepath, 'db_files', 'version2')
 
     dbname_old = os.path.join(v2fixpath, 'empty_runs.db')
 
-    if not os.path.exists(dbname_old):
-        pytest.skip("No db-file fixtures found. You can generate test db-files"
-                    " using the scripts in the "
-                    "https://github.com/QCoDeS/qcodes_generate_test_db/ repo")
+    skip_if_no_fixtures(dbname_old)
 
     with temporarily_copied_DB(dbname_old, debug=False, version=2) as conn:
 
         perform_db_upgrade_2_to_3(conn)
 
 
-def test_perform_actual_upgrade_2_to_3_some_runs():
+def test_perform_actual_upgrade_2_to_3_some_runs() -> None:
 
     v2fixpath = os.path.join(fixturepath, 'db_files', 'version2')
 
     dbname_old = os.path.join(v2fixpath, 'some_runs.db')
 
-    if not os.path.exists(dbname_old):
-        pytest.skip("No db-file fixtures found. You can generate test db-files"
-                    " using the scripts in the"
-                    "https://github.com/QCoDeS/qcodes_generate_test_db/ repo")
+    skip_if_no_fixtures(dbname_old)
 
     with temporarily_copied_DB(dbname_old, debug=False, version=2) as conn:
 
@@ -252,7 +260,7 @@ def test_perform_actual_upgrade_2_to_3_some_runs():
 
         # retrieve the json string and recreate the object
 
-        sql = f"""
+        sql = """
               SELECT run_description
               FROM runs
               WHERE run_id == 1
@@ -318,7 +326,7 @@ def test_perform_actual_upgrade_2_to_3_some_runs():
         assert p5.unit == "unit 5"
 
 
-def test_perform_upgrade_v2_v3_to_v4_fixes():
+def test_perform_upgrade_v2_v3_to_v4_fixes() -> None:
     """
     Test that a db that was upgraded from v2 to v3 with a buggy
     version will be corrected when upgraded to v4.
@@ -328,16 +336,13 @@ def test_perform_upgrade_v2_v3_to_v4_fixes():
 
     dbname_old = os.path.join(v3fixpath, 'some_runs_upgraded_2.db')
 
-    if not os.path.exists(dbname_old):
-        pytest.skip("No db-file fixtures found. You can generate test db-files"
-                    " using the scripts in the"
-                    " https://github.com/QCoDeS/qcodes_generate_test_db/ repo")
+    skip_if_no_fixtures(dbname_old)
 
     with temporarily_copied_DB(dbname_old, debug=False, version=3) as conn:
 
         assert get_user_version(conn) == 3
 
-        sql = f"""
+        sql = """
               SELECT run_description
               FROM runs
               WHERE run_id == 1
@@ -465,7 +470,7 @@ def test_perform_upgrade_v2_v3_to_v4_fixes():
         assert p5.unit == "unit 5"
 
 
-def test_perform_upgrade_v3_to_v4():
+def test_perform_upgrade_v3_to_v4() -> None:
     """
     Test that a db upgrade from v2 to v4 works correctly.
     """
@@ -474,16 +479,13 @@ def test_perform_upgrade_v3_to_v4():
 
     dbname_old = os.path.join(v3fixpath, 'some_runs_upgraded_2.db')
 
-    if not os.path.exists(dbname_old):
-        pytest.skip("No db-file fixtures found. You can generate test db-files"
-                    " using the scripts in the "
-                    "https://github.com/QCoDeS/qcodes_generate_test_db/ repo")
+    skip_if_no_fixtures(dbname_old)
 
     with temporarily_copied_DB(dbname_old, debug=False, version=3) as conn:
 
         assert get_user_version(conn) == 3
 
-        sql = f"""
+        sql = """
               SELECT run_description
               FROM runs
               WHERE run_id == 1
@@ -549,8 +551,8 @@ def test_perform_upgrade_v3_to_v4():
         assert p5.unit == "unit 5"
 
 
-@pytest.mark.usefixtures("empty_temp_db")
-def test_update_existing_guids(caplog):
+@pytest.mark.usefixtures("default_config", "empty_temp_db")
+def test_update_existing_guids(caplog: LogCaptureFixture) -> None:
 
     old_loc = 101
     old_ws = 1200
@@ -636,16 +638,13 @@ def _assert_loc_station(ds, expected_loc, expected_station):
                          ['empty',
                           'with_runs_but_no_snapshots',
                           'with_runs_and_snapshots'])
-def test_perform_actual_upgrade_4_to_5(db_file):
+def test_perform_actual_upgrade_4_to_5(db_file) -> None:
     v4fixpath = os.path.join(fixturepath, 'db_files', 'version4')
 
     db_file += '.db'
     dbname_old = os.path.join(v4fixpath, db_file)
 
-    if not os.path.exists(dbname_old):
-        pytest.skip("No db-file fixtures found. You can generate test db-files"
-                    " using the scripts in the "
-                    "https://github.com/QCoDeS/qcodes_generate_test_db/ repo")
+    skip_if_no_fixtures(dbname_old)
 
     with temporarily_copied_DB(dbname_old, debug=False, version=4) as conn:
         # firstly, assert the situation with 'snapshot' column of 'runs' table
@@ -661,16 +660,13 @@ def test_perform_actual_upgrade_4_to_5(db_file):
         assert is_column_in_table(conn, 'runs', 'snapshot')
 
 
-def test_perform_actual_upgrade_5_to_6():
+def test_perform_actual_upgrade_5_to_6() -> None:
     fixpath = os.path.join(fixturepath, 'db_files', 'version5')
 
     db_file = 'empty.db'
     dbname_old = os.path.join(fixpath, db_file)
 
-    if not os.path.exists(dbname_old):
-        pytest.skip("No db-file fixtures found. You can generate test db-files"
-                    " using the scripts in the "
-                    "https://github.com/QCoDeS/qcodes_generate_test_db/ repo")
+    skip_if_no_fixtures(dbname_old)
 
     with temporarily_copied_DB(dbname_old, debug=False, version=5) as conn:
         perform_db_upgrade_5_to_6(conn)
@@ -698,33 +694,27 @@ def test_perform_actual_upgrade_5_to_6():
             assert desc._version == 3
 
 
-def test_perform_upgrade_6_7():
+def test_perform_upgrade_6_7() -> None:
     fixpath = os.path.join(fixturepath, 'db_files', 'version6')
 
     db_file = 'empty.db'
     dbname_old = os.path.join(fixpath, db_file)
 
-    if not os.path.exists(dbname_old):
-        pytest.skip("No db-file fixtures found. You can generate test db-files"
-                    " using the scripts in the "
-                    "https://github.com/QCoDeS/qcodes_generate_test_db/ repo")
+    skip_if_no_fixtures(dbname_old)
 
     with temporarily_copied_DB(dbname_old, debug=False, version=6) as conn:
         perform_db_upgrade_6_to_7(conn)
         assert get_user_version(conn) == 7
 
 
-def test_perform_actual_upgrade_6_to_7():
+def test_perform_actual_upgrade_6_to_7() -> None:
 
     fixpath = os.path.join(fixturepath, 'db_files', 'version6')
 
     db_file = 'some_runs.db'
     dbname_old = os.path.join(fixpath, db_file)
 
-    if not os.path.exists(dbname_old):
-        pytest.skip("No db-file fixtures found. You can generate test db-files"
-                    " using the scripts in the "
-                    "https://github.com/QCoDeS/qcodes_generate_test_db/ repo")
+    skip_if_no_fixtures(dbname_old)
 
     with temporarily_copied_DB(dbname_old, debug=False, version=6) as conn:
         assert isinstance(conn, ConnectionPlus)
@@ -736,8 +726,10 @@ def test_perform_actual_upgrade_6_to_7():
             atomic_transaction(conn, no_of_runs_query), 'max(run_id)')
         assert no_of_runs == 10
 
-        columns = atomic_transaction(conn, "PRAGMA table_info(runs)").fetchall()
-        col_names = [col['name'] for col in columns]
+        c = atomic_transaction(conn, "PRAGMA table_info(runs)")
+        description = get_description_map(c)
+        columns = c.fetchall()
+        col_names = [col[description["name"]] for col in columns]
 
         assert 'captured_run_id' in col_names
         assert 'captured_counter' in col_names
@@ -746,6 +738,7 @@ def test_perform_actual_upgrade_6_to_7():
             ds1 = load_by_id(run_id, conn)
             ds2 = load_by_run_spec(captured_run_id=run_id, conn=conn)
 
+            assert isinstance(ds1, DataSet)
             assert ds1.the_same_dataset_as(ds2)
 
             assert ds1.run_id == run_id
@@ -758,6 +751,7 @@ def test_perform_actual_upgrade_6_to_7():
             ds1 = load_by_counter(counter, exp_id, conn)
             ds2 = load_by_run_spec(captured_counter=counter, conn=conn)
 
+            assert isinstance(ds1, DataSet)
             assert ds1.the_same_dataset_as(ds2)
             assert ds1.counter == counter
             assert ds1.counter == ds1.captured_counter
@@ -765,7 +759,7 @@ def test_perform_actual_upgrade_6_to_7():
             assert ds2.counter == ds2.captured_counter
 
 
-def test_perform_actual_upgrade_6_to_newest_add_new_data():
+def test_perform_actual_upgrade_6_to_newest_add_new_data() -> None:
     """
     Insert new runs on top of existing runs upgraded and verify that they
     get the correct captured_run_id and captured_counter
@@ -773,17 +767,14 @@ def test_perform_actual_upgrade_6_to_newest_add_new_data():
     import numpy as np
 
     from qcodes.dataset.measurements import Measurement
-    from qcodes.instrument.parameter import Parameter
+    from qcodes.parameters import Parameter
 
     fixpath = os.path.join(fixturepath, 'db_files', 'version6')
 
     db_file = 'some_runs.db'
     dbname_old = os.path.join(fixpath, db_file)
 
-    if not os.path.exists(dbname_old):
-        pytest.skip("No db-file fixtures found. You can generate test db-files"
-                    " using the scripts in the "
-                    "https://github.com/QCoDeS/qcodes_generate_test_db/ repo")
+    skip_if_no_fixtures(dbname_old)
 
     with temporarily_copied_DB(dbname_old, debug=False, version=6) as conn:
         assert isinstance(conn, ConnectionPlus)
@@ -832,6 +823,7 @@ def test_perform_actual_upgrade_6_to_newest_add_new_data():
             ds1 = load_by_id(run_id, conn)
             ds2 = load_by_run_spec(captured_run_id=run_id, conn=conn)
 
+            assert isinstance(ds1, DataSet)
             assert ds1.the_same_dataset_as(ds2)
 
             assert ds1.run_id == run_id
@@ -855,6 +847,7 @@ def test_perform_actual_upgrade_6_to_newest_add_new_data():
                                    experiment_name='some-exp',
                                    conn=conn)
 
+            assert isinstance(ds1, DataSet)
             assert ds1.the_same_dataset_as(ds2)
             assert ds1.counter == counter
             assert ds1.counter == ds1.captured_counter
@@ -865,16 +858,13 @@ def test_perform_actual_upgrade_6_to_newest_add_new_data():
 @pytest.mark.parametrize('db_file',
                          ['empty',
                           'some_runs'])
-def test_perform_actual_upgrade_7_to_8(db_file):
+def test_perform_actual_upgrade_7_to_8(db_file) -> None:
     v7fixpath = os.path.join(fixturepath, 'db_files', 'version7')
 
     db_file += '.db'
     dbname_old = os.path.join(v7fixpath, db_file)
 
-    if not os.path.exists(dbname_old):
-        pytest.skip("No db-file fixtures found. You can generate test db-files"
-                    " using the scripts in the "
-                    "https://github.com/QCoDeS/qcodes_generate_test_db/ repo")
+    skip_if_no_fixtures(dbname_old)
 
     with temporarily_copied_DB(dbname_old, debug=False, version=7) as conn:
 
@@ -884,7 +874,7 @@ def test_perform_actual_upgrade_7_to_8(db_file):
 
 
 @pytest.mark.usefixtures("empty_temp_db")
-def test_cannot_connect_to_newer_db():
+def test_cannot_connect_to_newer_db() -> None:
     conn = connect(qc.config["core"]["db_location"],
                    qc.config["core"]["db_debug"])
     current_version = get_user_version(conn)
@@ -897,21 +887,18 @@ def test_cannot_connect_to_newer_db():
                        qc.config["core"]["db_debug"])
 
 
-def test_latest_available_version():
+def test_latest_available_version() -> None:
     assert _latest_available_version() == 9
 
 
-@pytest.mark.parametrize('version', VERSIONS)
-def test_getting_db_version(version):
+@pytest.mark.parametrize("version", VERSIONS[:-1])
+def test_getting_db_version(version) -> None:
 
     fixpath = os.path.join(fixturepath, 'db_files', f'version{version}')
 
     dbname = os.path.join(fixpath, 'empty.db')
 
-    if not os.path.exists(dbname):
-        pytest.skip("No db-file fixtures found. You can generate test db-files"
-                    " using the scripts in the "
-                    "https://github.com/QCoDeS/qcodes_generate_test_db/ repo")
+    skip_if_no_fixtures(dbname)
 
     (db_v, new_v) = get_db_version_and_newest_available_version(dbname)
 
@@ -922,16 +909,13 @@ def test_getting_db_version(version):
 @pytest.mark.parametrize('db_file',
                          ['empty',
                           'some_runs'])
-def test_perform_actual_upgrade_8_to_9(db_file):
+def test_perform_actual_upgrade_8_to_9(db_file) -> None:
     v8fixpath = os.path.join(fixturepath, 'db_files', 'version8')
 
     db_file += '.db'
     dbname_old = os.path.join(v8fixpath, db_file)
 
-    if not os.path.exists(dbname_old):
-        pytest.skip("No db-file fixtures found. You can generate test db-files"
-                    " using the scripts in the "
-                    "https://github.com/QCoDeS/qcodes_generate_test_db/ repo")
+    skip_if_no_fixtures(dbname_old)
 
     with temporarily_copied_DB(dbname_old, debug=False, version=8) as conn:
 

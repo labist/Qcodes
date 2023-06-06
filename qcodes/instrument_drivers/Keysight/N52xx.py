@@ -3,17 +3,16 @@ import time
 from typing import Any, Sequence, Union
 
 import numpy as np
-from pyvisa import errors
+from pyvisa import constants, errors
 
-from qcodes import (
-    ChannelList,
-    InstrumentChannel,
+from qcodes.instrument import ChannelList, InstrumentChannel, VisaInstrument
+from qcodes.parameters import (
     Parameter,
+    ParameterBase,
     ParameterWithSetpoints,
-    VisaInstrument,
+    create_on_off_val_mapping,
 )
-from qcodes.instrument.base import _BaseParameter
-from qcodes.utils.validators import Arrays, Bool, Enum, Ints, Numbers
+from qcodes.validators import Arrays, Bool, Enum, Ints, Numbers
 
 
 class PNAAxisParameter(Parameter):
@@ -79,7 +78,7 @@ class FormattedSweep(ParameterWithSetpoints):
         self.memory = memory
 
     @property
-    def setpoints(self) -> Sequence[_BaseParameter]:
+    def setpoints(self) -> Sequence[ParameterBase]:
         """
         Overwrite setpoint parameter to ask the PNA what type of sweep
         """
@@ -106,12 +105,15 @@ class FormattedSweep(ParameterWithSetpoints):
         """
         return
 
-    def get_raw(self) -> Sequence[float]:
+    def get_raw(self) -> np.ndarray:
         if self.instrument is None:
             raise RuntimeError("Cannot get data without instrument")
         root_instr = self.instrument.root_instrument
         # Check if we should run a new sweep
-        if root_instr.auto_sweep():
+        auto_sweep = root_instr.auto_sweep()
+
+        prev_mode = ""
+        if auto_sweep:
             prev_mode = self.instrument.run_sweep()
         # Ask for data, setting the format to the requested form
         self.instrument.format(self.sweep_format)
@@ -120,13 +122,13 @@ class FormattedSweep(ParameterWithSetpoints):
                                                           is_big_endian=True)
         data = np.array(data)
         # Restore previous state if it was changed
-        if root_instr.auto_sweep():
+        if auto_sweep:
             root_instr.sweep_mode(prev_mode)
 
         return data
 
 
-class PNAPort(InstrumentChannel):
+class KeysightPNAPort(InstrumentChannel):
     """
     Allow operations on individual PNA ports.
     Note: This can be expanded to include a large number of extra parameters...
@@ -167,7 +169,11 @@ class PNAPort(InstrumentChannel):
                                          max_value=max_power)
 
 
-class PNATrace(InstrumentChannel):
+PNAPort = KeysightPNAPort
+"Alis for backwards compatibility"
+
+
+class KeysightPNATrace(InstrumentChannel):
     """
     Allow operations on individual PNA traces.
     """
@@ -193,56 +199,81 @@ class PNATrace(InstrumentChannel):
         # Note: Currently parameters that return complex values are not
         # supported as there isn't really a good way of saving them into the
         # dataset
-        self.add_parameter('format',
-                           label='Format',
-                           get_cmd='CALC:FORM?',
-                           set_cmd='CALC:FORM {}',
-                           vals=Enum('MLIN', 'MLOG', 'PHAS',
-                                     'UPH', 'IMAG', 'REAL'))
+        self.add_parameter(
+            "format",
+            label="Format",
+            get_cmd="CALC:FORM?",
+            set_cmd="CALC:FORM {}",
+            vals=Enum("MLIN", "MLOG", "PHAS", "UPH", "IMAG", "REAL", "POLAR"),
+        )
 
         # And a list of individual formats
-        self.add_parameter('magnitude',
-                           sweep_format='MLOG',
-                           label='Magnitude',
-                           unit='dB',
-                           parameter_class=FormattedSweep,
-                           vals=Arrays(shape=(self.parent.points,)))
-        self.add_parameter('linear_magnitude',
-                           sweep_format='MLIN',
-                           label='Magnitude',
-                           unit='ratio',
-                           parameter_class=FormattedSweep,
-                           vals=Arrays(shape=(self.parent.points,)))
-        self.add_parameter('phase',
-                           sweep_format='PHAS',
-                           label='Phase',
-                           unit='deg',
-                           parameter_class=FormattedSweep,
-                           vals=Arrays(shape=(self.parent.points,)))
-        self.add_parameter('unwrapped_phase',
-                           sweep_format='UPH',
-                           label='Phase',
-                           unit='deg',
-                           parameter_class=FormattedSweep,
-                           vals=Arrays(shape=(self.parent.points,)))
-        self.add_parameter("group_delay",
-                           sweep_format='GDEL',
-                           label='Group Delay',
-                           unit='s',
-                           parameter_class=FormattedSweep,
-                           vals=Arrays(shape=(self.parent.points,)))
-        self.add_parameter('real',
-                           sweep_format='REAL',
-                           label='Real',
-                           unit='LinMag',
-                           parameter_class=FormattedSweep,
-                           vals=Arrays(shape=(self.parent.points,)))
-        self.add_parameter('imaginary',
-                           sweep_format='IMAG',
-                           label='Imaginary',
-                           unit='LinMag',
-                           parameter_class=FormattedSweep,
-                           vals=Arrays(shape=(self.parent.points,)))
+        self.add_parameter(
+            "magnitude",
+            sweep_format="MLOG",
+            label="Magnitude",
+            unit="dB",
+            parameter_class=FormattedSweep,
+            vals=Arrays(shape=(self.parent.points,)),
+        )
+        self.add_parameter(
+            "linear_magnitude",
+            sweep_format="MLIN",
+            label="Magnitude",
+            unit="ratio",
+            parameter_class=FormattedSweep,
+            vals=Arrays(shape=(self.parent.points,)),
+        )
+        self.add_parameter(
+            "phase",
+            sweep_format="PHAS",
+            label="Phase",
+            unit="deg",
+            parameter_class=FormattedSweep,
+            vals=Arrays(shape=(self.parent.points,)),
+        )
+        self.add_parameter(
+            "unwrapped_phase",
+            sweep_format="UPH",
+            label="Phase",
+            unit="deg",
+            parameter_class=FormattedSweep,
+            vals=Arrays(shape=(self.parent.points,)),
+        )
+        self.add_parameter(
+            "group_delay",
+            sweep_format="GDEL",
+            label="Group Delay",
+            unit="s",
+            parameter_class=FormattedSweep,
+            vals=Arrays(shape=(self.parent.points,)),
+        )
+        self.add_parameter(
+            "real",
+            sweep_format="REAL",
+            label="Real",
+            unit="LinMag",
+            parameter_class=FormattedSweep,
+            vals=Arrays(shape=(self.parent.points,)),
+        )
+        self.add_parameter(
+            "imaginary",
+            sweep_format="IMAG",
+            label="Imaginary",
+            unit="LinMag",
+            parameter_class=FormattedSweep,
+            vals=Arrays(shape=(self.parent.points,)),
+        )
+        self.add_parameter(
+            "polar",
+            sweep_format="POLAR",
+            label="Polar",
+            unit="ratio",
+            parameter_class=FormattedSweep,
+            get_parser=self._parse_polar_data,
+            vals=Arrays(shape=(self.parent.points,), valid_types=(complex,)),
+        )
+        
         self.add_parameter('ave_magnitude',
                             unit='dB',
                             label='$\\langle |S| \\rangle$',
@@ -260,7 +291,14 @@ class PNATrace(InstrumentChannel):
         lin = np.power(10, mag_db/20)
         averaged = np.mean(lin)
         return 20 * np.log10(averaged)
-
+    @staticmethod
+    def _parse_polar_data(data: np.ndarray) -> np.ndarray:
+        """
+        Parse the 2*n-length flat array coming from the instrument
+        and convert to n-length array of complex numbers
+        """
+        data_shape = data.size
+        return data.reshape((data_shape // 2, 2)).view(dtype=np.complex128).flatten()
 
     def run_sweep(self) -> str:
         """
@@ -338,6 +376,10 @@ class PNATrace(InstrumentChannel):
         self.write(f"CALC:PAR:MOD:EXT \"{val}\"")
 
 
+PNATrace = KeysightPNATrace
+"Alias for backwards compatiblitly"
+
+
 class PNABase(VisaInstrument):
     """
     Base qcodes driver for Agilent/Keysight series PNAs
@@ -365,13 +407,23 @@ class PNABase(VisaInstrument):
                       name, min_power, max_power, min_freq, max_freq)
 
         #Ports
-        ports = ChannelList(self, "PNAPorts", PNAPort)
-        for port_num in range(1, nports+1):
-            port = PNAPort(self, f"port{port_num}", port_num,
-                           min_power, max_power)
+        ports = ChannelList(self, "PNAPorts", KeysightPNAPort)
+        for port_num in range(1, nports + 1):
+            port = KeysightPNAPort(
+                self, f"port{port_num}", port_num, min_power, max_power
+            )
             ports.append(port)
             self.add_submodule(f"port{port_num}", port)
         self.add_submodule("ports", ports.to_channel_tuple())
+
+        # RF output
+        self.add_parameter(
+            "output",
+            label="RF Output",
+            get_cmd=":OUTPut?",
+            set_cmd=":OUTPut {}",
+            val_mapping=create_on_off_val_mapping(on_val="1", off_val="0"),
+        )
 
         # Drive power
         self.add_parameter('power',
@@ -541,7 +593,7 @@ class PNABase(VisaInstrument):
                            vals=Numbers(min_value=1, max_value=24))
         # Note: Traces will be accessed through the traces property which
         # updates the channellist to include only active trace numbers
-        self._traces = ChannelList(self, "PNATraces", PNATrace)
+        self._traces = ChannelList(self, "PNATraces", KeysightPNATrace)
         self.add_submodule("traces", self._traces)
         # Add shortcuts to first trace
         trace1 = self.traces[0]
@@ -585,7 +637,7 @@ class PNABase(VisaInstrument):
             active_trace = self.active_trace()
         except errors.VisaIOError as e:
             self.log.debug("Exception on querying active trace: %r", e)
-            if e.error_code == errors.StatusCode.error_timeout:
+            if e.error_code == constants.StatusCode.error_timeout:
                 self.log.info("No active trace on PNA")
                 active_trace = None
             else:
@@ -596,8 +648,7 @@ class PNABase(VisaInstrument):
         self._traces.clear()
         for trace_name in parlist[::2]:
             trace_num = self.select_trace_by_name(trace_name)
-            pna_trace = PNATrace(self, f"tr{trace_num}",
-                                 trace_name, trace_num)
+            pna_trace = KeysightPNATrace(self, f"tr{trace_num}", trace_name, trace_num)
             self._traces.append(pna_trace)
 
         # Restore the active trace if there was one

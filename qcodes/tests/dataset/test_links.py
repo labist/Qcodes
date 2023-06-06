@@ -1,17 +1,21 @@
-import re
 import json
-from datetime import datetime, timedelta
 import random
+import re
+from datetime import datetime, timedelta
 from typing import List
 
-import pytest
 import hypothesis.strategies as hst
+import pytest
 from hypothesis import given, settings
 
-
-from qcodes.dataset.linked_datasets.links import (
-    Link, link_to_str, str_to_link, str_to_links, links_to_str)
 from qcodes.dataset.guids import generate_guid
+from qcodes.dataset.linked_datasets.links import (
+    Link,
+    link_to_str,
+    links_to_str,
+    str_to_link,
+    str_to_links,
+)
 
 
 def generate_some_links(N: int) -> List[Link]:
@@ -46,7 +50,7 @@ def generate_some_links(N: int) -> List[Link]:
     return links
 
 
-def test_link_construction_passes():
+def test_link_construction_passes() -> None:
     head_guid = generate_guid()
     tail_guid = generate_guid()
     edge_type = "fit"
@@ -66,7 +70,7 @@ def test_link_construction_passes():
 
 @settings(max_examples=20)
 @given(not_guid=hst.text())
-def test_link_construction_raises(not_guid):
+def test_link_construction_raises(not_guid) -> None:
     head_guid = generate_guid()
     tail_guid = generate_guid()
     edge_type = "fit"
@@ -84,7 +88,7 @@ def test_link_construction_raises(not_guid):
         Link(head_guid, not_guid, edge_type)
 
 
-def test_link_to_str():
+def test_link_to_str() -> None:
     head_guid = generate_guid()
     tail_guid = generate_guid()
     edge_type = "test"
@@ -100,7 +104,7 @@ def test_link_to_str():
     assert link_to_str(link) == expected_str
 
 
-def test_str_to_link():
+def test_str_to_link() -> None:
     head_guid = generate_guid()
     tail_guid = generate_guid()
     edge_type = "test"
@@ -117,7 +121,7 @@ def test_str_to_link():
     assert str_to_link(lstr) == expected_link
 
 
-def test_link_to_string_and_back():
+def test_link_to_string_and_back() -> None:
     head_guid = generate_guid()
     tail_guid = generate_guid()
     edge_type = "analysis"
@@ -133,7 +137,7 @@ def test_link_to_string_and_back():
 
 @settings(max_examples=5, deadline=1200)
 @given(N=hst.integers(min_value=0, max_value=25))
-def test_links_to_str_and_back(N):
+def test_links_to_str_and_back(N) -> None:
     links = generate_some_links(N)
 
     new_links = str_to_links(links_to_str(links))

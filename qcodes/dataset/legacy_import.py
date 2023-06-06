@@ -1,16 +1,22 @@
-from typing import List, Optional
-import json
+from __future__ import annotations
 
-from qcodes.data.data_array import DataArray
-from qcodes.dataset.measurements import Measurement, DataSaver
-from qcodes.data.data_set import load_data
-from qcodes.dataset.experiment_container import Experiment
-from qcodes.data.data_set import DataSet as OldDataSet
+import json
+from pathlib import Path
+from typing import TYPE_CHECKING
+
 import numpy as np
 
+from qcodes.dataset.experiment_container import Experiment
+from qcodes.dataset.measurements import DataSaver, Measurement
 
-def setup_measurement(dataset: OldDataSet,
-                      exp: Optional['Experiment'] = None) -> Measurement:
+if TYPE_CHECKING:
+    from qcodes_loop.data.data_array import DataArray
+    from qcodes_loop.data.data_set import DataSet as OldDataSet
+
+
+def setup_measurement(
+    dataset: OldDataSet, exp: Experiment | None = None
+) -> Measurement:
     """
     Register parameters for all :class:.`DataArrays` in a given QCoDeS legacy dataset
 
@@ -21,7 +27,7 @@ def setup_measurement(dataset: OldDataSet,
         dataset: Legacy dataset to register parameters from.
         exp: experiment that the legacy dataset should be bound to. If
             None the default experiment is used. See the
-            docs of :class:`.Measurement` for more details.
+            docs of :class:`qcodes.dataset.Measurement` for more details.
     """
     meas = Measurement(exp=exp)
     for arrayname, array in dataset.arrays.items():
@@ -38,7 +44,9 @@ def setup_measurement(dataset: OldDataSet,
 
 
 def store_array_to_database(datasaver: DataSaver, array: DataArray) -> int:
+    assert array.shape is not None
     dims = len(array.shape)
+    assert array.array_id is not None
     if dims == 2:
         for index1, i in enumerate(array.set_arrays[0]):
             for index2, j in enumerate(array.set_arrays[1][index1]):
@@ -55,9 +63,13 @@ def store_array_to_database(datasaver: DataSaver, array: DataArray) -> int:
 
 
 def store_array_to_database_alt(meas: Measurement, array: DataArray) -> int:
+    assert array.shape is not None
     dims = len(array.shape)
+    assert array.array_id is not None
     if dims == 2:
-        outer_data = np.empty(array.shape[1])
+        outer_data = np.empty(
+            array.shape[1]  # pyright: ignore[reportGeneralTypeIssues]
+        )
         with meas.run() as datasaver:
             for index1, i in enumerate(array.set_arrays[0]):
                 outer_data[:] = i
@@ -74,20 +86,26 @@ def store_array_to_database_alt(meas: Measurement, array: DataArray) -> int:
     return datasaver.run_id
 
 
-def import_dat_file(location: str,
-                    exp: Optional[Experiment] = None) -> List[int]:
+def import_dat_file(location: str | Path, exp: Experiment | None = None) -> list[int]:
     """
-    This imports a QCoDeS legacy :class:.`DataSet` into the database.
+    This imports a QCoDeS legacy :class:`qcodes.data.data_set.DataSet`
+    into the database.
 
     Args:
         location: Path to file containing legacy dataset
         exp: Specify the experiment to store data to.
             If None the default one is used. See the
-            docs of :class:`.Measurement` for more details.
+            docs of :class:`qcodes.dataset.Measurement` for more details.
     """
+    try:
+        from qcodes_loop.data.data_set import load_data
+    except ImportError as e:
+        raise ImportError(
+            "The legacy importer requires qcodes_loop to be installed."
+        ) from e
 
 
-    loaded_data = load_data(location)
+    loaded_data = load_data(str(location))
     meas = setup_measurement(loaded_data,
                              exp=exp)
     run_ids = []

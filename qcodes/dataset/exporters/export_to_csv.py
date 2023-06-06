@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Mapping, Optional
+from collections.abc import Mapping
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -17,11 +19,11 @@ class DataPathException(Exception):
 
 def dataframe_to_csv(
     dfdict: Mapping[str, pd.DataFrame],
-    path: str,
+    path: str | Path,
     single_file: bool = False,
-    single_file_name: Optional[str] = None,
+    single_file_name: str | None = None,
 ) -> None:
-    import pandas as pd
+    import pandas as pd  # pylint: disable=import-outside-toplevel
 
     dfs_to_save = list()
     for parametername, df in dfdict.items():
@@ -35,12 +37,12 @@ def dataframe_to_csv(
         if any(len(df) != df_length for df in dfs_to_save):
             raise DataLengthException(
                 "You cannot concatenate data "
-                + "with different length to a "
-                + "single file."
+                "with different length to a "
+                "single file."
             )
         if single_file_name is None:
             raise DataPathException(
-                "Please provide the desired file name " + "for the concatenated data."
+                "Please provide the desired file name for the concatenated data."
             )
         else:
             if not single_file_name.lower().endswith((".dat", ".csv", ".txt")):

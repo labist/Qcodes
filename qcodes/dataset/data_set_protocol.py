@@ -1,22 +1,35 @@
 from __future__ import annotations
 
+import sys
+
+if sys.version_info >= (3, 10):
+    # new entrypoints api was added in 3.10
+    from importlib.metadata import entry_points
+else:
+    # 3.9 and earlier
+    from importlib_metadata import entry_points
+
+import logging
 import os
+import warnings
+from collections.abc import Mapping
 from enum import Enum
+from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
+    Callable,
     Dict,
     List,
-    Mapping,
-    Optional,
+    Protocol,
     Sequence,
-    Sized,
     Tuple,
     Union,
+    runtime_checkable,
 )
 
 import numpy as np
-from typing_extensions import Protocol, TypeAlias, runtime_checkable
+from typing_extensions import TypeAlias
 
 from qcodes.dataset.descriptions.dependencies import InterDependencies_
 from qcodes.dataset.descriptions.param_spec import ParamSpec, ParamSpecBase
@@ -34,23 +47,30 @@ from qcodes.dataset.linked_datasets.links import Link
 from .descriptions.versioning.converters import new_to_old
 from .exporters.export_info import ExportInfo
 from .exporters.export_to_csv import dataframe_to_csv
+from .exporters.export_to_xarray import xarray_to_h5netcdf_with_complex_numbers
 from .sqlite.queries import raw_time_to_str_time
 
 if TYPE_CHECKING:
     import pandas as pd
     import xarray as xr
 
-    from qcodes.instrument.parameter import _BaseParameter
+    from qcodes.parameters import ParameterBase
 
     from .data_set_cache import DataSetCache
 
+# for unknown reason entrypoints registered in pyproct.toml shows up
+# twice here convert to set to ensure no duplication.
+_EXPORT_CALLBACKS = set(entry_points(group="qcodes.dataset.on_export"))
+
+# even with from __future__ import annotations
+# type aliases must use the old format until we drop 3.8/3.9
 array_like_types = (tuple, list, np.ndarray)
 scalar_res_types: TypeAlias = Union[
     str, complex, np.integer, np.floating, np.complexfloating
 ]
 values_type: TypeAlias = Union[scalar_res_types, np.ndarray, Sequence[scalar_res_types]]
-res_type: TypeAlias = Tuple[Union["_BaseParameter", str], values_type]
-setpoints_type: TypeAlias = Sequence[Union[str, "_BaseParameter"]]
+res_type: TypeAlias = Tuple[Union["ParameterBase", str], values_type]
+setpoints_type: TypeAlias = Sequence[Union[str, "ParameterBase"]]
 SPECS: TypeAlias = List[ParamSpec]
 # Transition period type: SpecsOrInterDeps. We will allow both as input to
 # the DataSet constructor for a while, then deprecate SPECS and finally remove
@@ -58,18 +78,19 @@ SPECS: TypeAlias = List[ParamSpec]
 SpecsOrInterDeps: TypeAlias = Union[SPECS, InterDependencies_]
 ParameterData: TypeAlias = Dict[str, Dict[str, np.ndarray]]
 
+LOG = logging.getLogger(__name__)
 
 class CompletedError(RuntimeError):
     pass
 
 
 @runtime_checkable
-class DataSetProtocol(Protocol, Sized):
+class DataSetProtocol(Protocol):
 
     # the "persistent traits" are the attributes/properties of the DataSet
     # that are NOT tied to the representation of the DataSet in any particular
     # database
-    persistent_traits: Tuple[str, ...] = (
+    persistent_traits: tuple[str, ...] = (
         "name",
         "guid",
         "number_of_results",
@@ -91,201 +112,212 @@ class DataSetProtocol(Protocol, Sized):
         *,
         snapshot: Mapping[Any, Any],
         interdeps: InterDependencies_,
-        shapes: Shapes = None,
+        shapes: Shapes | None = None,
         parent_datasets: Sequence[Mapping[Any, Any]] = (),
         write_in_background: bool = False,
     ) -> None:
-        pass
+        ...
 
     @property
     def pristine(self) -> bool:
-        pass
+        ...
 
     @property
     def running(self) -> bool:
-        pass
+        ...
 
     @property
     def completed(self) -> bool:
-        pass
+        ...
 
     def mark_completed(self) -> None:
-        pass
+        ...
 
     # dataset attributes
 
     @property
     def run_id(self) -> int:
-        pass
+        ...
 
     @property
     def captured_run_id(self) -> int:
-        pass
+        ...
 
     @property
     def counter(self) -> int:
-        pass
+        ...
 
     @property
     def captured_counter(self) -> int:
-        pass
+        ...
 
     @property
     def guid(self) -> str:
-        pass
+        ...
 
     @property
     def number_of_results(self) -> int:
-        pass
+        ...
 
     @property
     def name(self) -> str:
-        pass
+        ...
 
     @property
     def exp_name(self) -> str:
-        pass
+        ...
 
     @property
     def exp_id(self) -> int:
-        pass
+        ...
 
     @property
     def sample_name(self) -> str:
-        pass
+        ...
 
-    def run_timestamp(self, fmt: str = "%Y-%m-%d %H:%M:%S") -> Optional[str]:
-        pass
-
-    @property
-    def run_timestamp_raw(self) -> Optional[float]:
-        pass
-
-    def completed_timestamp(self, fmt: str = "%Y-%m-%d %H:%M:%S") -> Optional[str]:
-        pass
+    def run_timestamp(self, fmt: str = "%Y-%m-%d %H:%M:%S") -> str | None:
+        ...
 
     @property
-    def completed_timestamp_raw(self) -> Optional[float]:
-        pass
+    def run_timestamp_raw(self) -> float | None:
+        ...
+
+    def completed_timestamp(self, fmt: str = "%Y-%m-%d %H:%M:%S") -> str | None:
+        ...
+
+    @property
+    def completed_timestamp_raw(self) -> float | None:
+        ...
 
     # snapshot and metadata
     @property
-    def snapshot(self) -> Optional[Dict[str, Any]]:
-        pass
+    def snapshot(self) -> dict[str, Any] | None:
+        ...
 
     def add_snapshot(self, snapshot: str, overwrite: bool = False) -> None:
-        pass
+        ...
 
     @property
-    def _snapshot_raw(self) -> Optional[str]:
-        pass
+    def _snapshot_raw(self) -> str | None:
+        ...
 
     def add_metadata(self, tag: str, metadata: Any) -> None:
-        pass
+        ...
 
     @property
-    def metadata(self) -> Dict[str, Any]:
-        pass
+    def metadata(self) -> dict[str, Any]:
+        ...
 
     @property
-    def path_to_db(self) -> Optional[str]:
-        pass
+    def path_to_db(self) -> str | None:
+        ...
 
     # dataset description and links
     @property
-    def paramspecs(self) -> Dict[str, ParamSpec]:
-        pass
+    def paramspecs(self) -> dict[str, ParamSpec]:
+        ...
 
     @property
     def description(self) -> RunDescriber:
-        pass
+        ...
 
     @property
-    def parent_dataset_links(self) -> List[Link]:
-        pass
+    def parent_dataset_links(self) -> list[Link]:
+        ...
 
     # data related members
 
     def export(
         self,
-        export_type: Optional[Union[DataExportType, str]] = None,
-        path: Optional[str] = None,
-        prefix: Optional[str] = None,
+        export_type: DataExportType | str | None = None,
+        path: str | None = None,
+        prefix: str | None = None,
+        automatic_export: bool = False,
     ) -> None:
-        pass
+        ...
 
     @property
     def export_info(self) -> ExportInfo:
-        pass
+        ...
 
     @property
     def cache(self) -> DataSetCache[DataSetProtocol]:
-        pass
+        ...
 
     def get_parameter_data(
         self,
-        *params: Union[str, ParamSpec, _BaseParameter],
-        start: Optional[int] = None,
-        end: Optional[int] = None,
+        *params: str | ParamSpec | ParameterBase,
+        start: int | None = None,
+        end: int | None = None,
+        callback: Callable[[float], None] | None = None,
     ) -> ParameterData:
-        pass
+        ...
 
     def get_parameters(self) -> SPECS:
         # used by plottr
-        pass
+        ...
 
     @property
-    def dependent_parameters(self) -> Tuple[ParamSpecBase, ...]:
-        pass
+    def dependent_parameters(self) -> tuple[ParamSpecBase, ...]:
+        ...
 
     # exporters to other in memory formats
 
     def to_xarray_dataarray_dict(
         self,
-        *params: Union[str, ParamSpec, _BaseParameter],
-        start: Optional[int] = None,
-        end: Optional[int] = None,
-    ) -> Dict[str, xr.DataArray]:
-        pass
+        *params: str | ParamSpec | ParameterBase,
+        start: int | None = None,
+        end: int | None = None,
+    ) -> dict[str, xr.DataArray]:
+        ...
 
     def to_xarray_dataset(
         self,
-        *params: Union[str, ParamSpec, _BaseParameter],
-        start: Optional[int] = None,
-        end: Optional[int] = None,
+        *params: str | ParamSpec | ParameterBase,
+        start: int | None = None,
+        end: int | None = None,
     ) -> xr.Dataset:
-        pass
+        ...
 
     def to_pandas_dataframe_dict(
         self,
-        *params: Union[str, ParamSpec, _BaseParameter],
-        start: Optional[int] = None,
-        end: Optional[int] = None,
-    ) -> Dict[str, pd.DataFrame]:
-        pass
+        *params: str | ParamSpec | ParameterBase,
+        start: int | None = None,
+        end: int | None = None,
+    ) -> dict[str, pd.DataFrame]:
+        ...
 
     def to_pandas_dataframe(
         self,
-        *params: Union[str, ParamSpec, _BaseParameter],
-        start: Optional[int] = None,
-        end: Optional[int] = None,
+        *params: str | ParamSpec | ParameterBase,
+        start: int | None = None,
+        end: int | None = None,
     ) -> pd.DataFrame:
-        pass
+        ...
 
     # private members called by various other parts or the api
 
     def _enqueue_results(self, result_dict: Mapping[ParamSpecBase, np.ndarray]) -> None:
-        pass
+        ...
 
     def _flush_data_to_database(self, block: bool = False) -> None:
-        pass
+        ...
 
     @property
-    def _parameters(self) -> Optional[str]:
-        pass
+    def _parameters(self) -> str | None:
+        ...
+
+    def _set_export_info(self, export_info: ExportInfo) -> None:
+        ...
+
+    def __len__(self) -> int:
+        ...
+
+    def the_same_dataset_as(self, other: DataSetProtocol) -> bool:
+        ...
 
 
-class BaseDataSet(DataSetProtocol):
+class BaseDataSet(DataSetProtocol, Protocol):
 
     # shared methods between all implementations of the dataset
 
@@ -327,13 +359,18 @@ class BaseDataSet(DataSetProtocol):
 
     def export(
         self,
-        export_type: Optional[Union[DataExportType, str]] = None,
-        path: Optional[str] = None,
-        prefix: Optional[str] = None,
+        export_type: DataExportType | str | None = None,
+        path: str | Path | None = None,
+        prefix: str | None = None,
+        automatic_export: bool = False,
     ) -> None:
-        """Export data to disk with file name {prefix}{run_id}.{ext}.
-        Values for the export type, path and prefix can also be set in the "dataset"
-        section of qcodes config.
+        """Export data to disk with file name `{prefix}{name_elements}.{ext}`.
+        Name elements are names of dataset object attributes that are taken
+        from the dataset and inserted into the name of the export file, for
+        example if name elements are ``["captured_run_id", "guid"]``, then
+        the file name will be `{prefix}{captured_run_id}_{guid}.{ext}`.
+        Values for the export type, path, export_name_elements and prefix can
+        also be set in the "dataset" section of qcodes config.
 
         Args:
             export_type: Data export type, e.g. "netcdf" or ``DataExportType.NETCDF``,
@@ -345,6 +382,9 @@ class BaseDataSet(DataSetProtocol):
             ValueError: If the export data type is not specified or unknown,
                 raise an error
         """
+        if isinstance(path, str):
+            path = Path(path)
+
         parsed_export_type = get_data_export_type(export_type)
 
         if parsed_export_type is None and export_type is None:
@@ -360,7 +400,10 @@ class BaseDataSet(DataSetProtocol):
             )
 
         export_path = self._export_data(
-            export_type=parsed_export_type, path=path, prefix=prefix
+            export_type=parsed_export_type,
+            path=path,
+            prefix=prefix,
+            automatic_export=automatic_export,
         )
         export_info = self.export_info
         if export_path is not None:
@@ -370,20 +413,20 @@ class BaseDataSet(DataSetProtocol):
 
         self._set_export_info(export_info)
 
-    def _set_export_info(self, export_info: ExportInfo) -> None:
-        self.add_metadata("export_info", export_info.to_str())
-        self._export_info = export_info
-
     def _export_data(
         self,
         export_type: DataExportType,
-        path: Optional[str] = None,
-        prefix: Optional[str] = None,
-    ) -> Optional[str]:
-        """Export data to disk with file name {prefix}{run_id}.{ext}.
-
-        Values for the export type, path and prefix can also be set in the qcodes
-        "dataset" config.
+        path: Path | None = None,
+        prefix: str | None = None,
+        automatic_export: bool = False,
+    ) -> Path | None:
+        """Export data to disk with file name `{prefix}{name_elements}.{ext}`.
+        Name elements are names of dataset object attributes that are taken
+        from the dataset and inserted into the name of the export file, for
+        example if name elements are ``["captured_run_id", "guid"]``, then
+        the file name will be `{prefix}{captured_run_id}_{guid}.{ext}`.
+        Values for the export type, path, export_name_elements and prefix can
+        also be set in the "dataset" section of qcodes config.
 
         Args:
             export_type: Data export type, e.g. DataExportType.NETCDF
@@ -396,22 +439,33 @@ class BaseDataSet(DataSetProtocol):
         # Set defaults to values in config if the value was not set
         # (defaults to None)
         path = path if path is not None else get_data_export_path()
+        path.mkdir(exist_ok=True, parents=True)
         prefix = prefix if prefix is not None else get_data_export_prefix()
 
         if DataExportType.NETCDF == export_type:
             file_name = self._export_file_name(
                 prefix=prefix, export_type=DataExportType.NETCDF
             )
-            return self._export_as_netcdf(path=path, file_name=file_name)
+            export_path = Path(self._export_as_netcdf(path=path, file_name=file_name))
 
         elif DataExportType.CSV == export_type:
             file_name = self._export_file_name(
                 prefix=prefix, export_type=DataExportType.CSV
             )
-            return self._export_as_csv(path=path, file_name=file_name)
+            export_path = Path(self._export_as_csv(path=path, file_name=file_name))
 
         else:
-            return None
+            export_path = None
+
+        for export_callback in _EXPORT_CALLBACKS:
+            try:
+                export_callback_function = export_callback.load()
+                LOG.info("Executing on_export callback %s", export_callback.name)
+                export_callback_function(export_path, automatic_export=automatic_export)
+            except Exception:
+                LOG.exception("Exception during export callback function")
+
+        return export_path
 
     def _export_file_name(self, prefix: str, export_type: DataExportType) -> str:
         """Get export file name"""
@@ -420,28 +474,14 @@ class BaseDataSet(DataSetProtocol):
         post_fix = "_".join([str(getattr(self, name)) for name in name_elements])
         return f"{prefix}{post_fix}.{extension}"
 
-    def _export_as_netcdf(self, path: str, file_name: str) -> str:
+    def _export_as_netcdf(self, path: Path, file_name: str) -> Path:
         """Export data as netcdf to a given path with file prefix"""
-        file_path = os.path.join(path, file_name)
+        file_path = path / file_name
         xarr_dataset = self.to_xarray_dataset()
-        data_var_kinds = [
-            xarr_dataset.data_vars[data_var].dtype.kind
-            for data_var in xarr_dataset.data_vars
-        ]
-        coord_kinds = [
-            xarr_dataset.coords[coord].dtype.kind for coord in xarr_dataset.coords
-        ]
-        if "c" in data_var_kinds or "c" in coord_kinds:
-            # see http://xarray.pydata.org/en/stable/howdoi.html
-            # for how to export complex numbers
-            xarr_dataset.to_netcdf(
-                path=file_path, engine="h5netcdf", invalid_netcdf=True
-            )
-        else:
-            xarr_dataset.to_netcdf(path=file_path, engine="h5netcdf")
+        xarray_to_h5netcdf_with_complex_numbers(xarr_dataset, file_path)
         return file_path
 
-    def _export_as_csv(self, path: str, file_name: str) -> str:
+    def _export_as_csv(self, path: Path, file_name: str) -> Path:
         """Export data as csv to a given path with file prefix."""
         dfdict = self.to_pandas_dataframe_dict()
         dataframe_to_csv(
@@ -450,12 +490,30 @@ class BaseDataSet(DataSetProtocol):
             single_file=True,
             single_file_name=file_name,
         )
-        return os.path.join(path, file_name)
+        return path / file_name
+
+    def _add_metadata_to_netcdf_if_nc_exported(self, tag: str, data: Any) -> None:
+        export_paths = self.export_info.export_paths
+        nc_file = export_paths.get(DataExportType.NETCDF.value, None)
+        if nc_file is not None:
+            import h5netcdf
+
+            try:
+                with h5netcdf.File(
+                    nc_file, mode="r+", decode_vlen_strings=False
+                ) as h5nc_file:
+                    h5nc_file.attrs[tag] = data
+            except (
+                FileNotFoundError,
+                OSError,
+            ):  # older versions of h5py may throw a OSError here
+                warnings.warn(
+                    f"Could not add metadata to the exported NetCDF file, "
+                    f"was the file moved? GUID {self.guid}, NetCDF file {nc_file}"
+                )
 
     @staticmethod
-    def _validate_parameters(
-        *params: Union[str, ParamSpec, _BaseParameter]
-    ) -> List[str]:
+    def _validate_parameters(*params: str | ParamSpec | ParameterBase) -> list[str]:
         """
         Validate that the provided parameters have a name and return those
         names as a list.
@@ -493,7 +551,7 @@ class BaseDataSet(DataSetProtocol):
             new_data = param_data.ravel()
         return new_data
 
-    def run_timestamp(self, fmt: str = "%Y-%m-%d %H:%M:%S") -> Optional[str]:
+    def run_timestamp(self, fmt: str = "%Y-%m-%d %H:%M:%S") -> str | None:
         """
         Returns run timestamp in a human-readable format
 
@@ -505,7 +563,7 @@ class BaseDataSet(DataSetProtocol):
         """
         return raw_time_to_str_time(self.run_timestamp_raw, fmt)
 
-    def completed_timestamp(self, fmt: str = "%Y-%m-%d %H:%M:%S") -> Optional[str]:
+    def completed_timestamp(self, fmt: str = "%Y-%m-%d %H:%M:%S") -> str | None:
         """
         Returns timestamp when measurement run was completed
         in a human-readable format
@@ -517,7 +575,7 @@ class BaseDataSet(DataSetProtocol):
         return raw_time_to_str_time(self.completed_timestamp_raw, fmt)
 
     @property
-    def dependent_parameters(self) -> Tuple[ParamSpecBase, ...]:
+    def dependent_parameters(self) -> tuple[ParamSpecBase, ...]:
         """
         Return all the parameters that explicitly depend on other parameters
         """
