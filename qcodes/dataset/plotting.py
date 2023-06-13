@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from matplotlib.colorbar import Colorbar
 
 import qcodes as qc
-from qcodes.dataset.data_set import load_by_id
+from qcodes.dataset.data_set import load_by_id, load_by_run_spec
 from qcodes.dataset.data_set_protocol import DataSetProtocol
 from qcodes.plotting import auto_color_scale_from_config, find_scale_and_prefix
 
