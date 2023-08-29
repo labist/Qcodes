@@ -282,7 +282,12 @@ class Keithley2450Sense(InstrumentChannel):
             vals=Numbers(0.001, 10),
         )
 
-        self.add_parameter("user_number", get_cmd=None, set_cmd=None, vals=Ints(1, 5))
+        self.add_parameter("user_number", 
+                           get_cmd=None, 
+                           set_cmd=None, 
+                           initial_value=1,
+                           vals=Ints(1, 5)
+        )
 
         self.add_parameter(
             "user_delay",
@@ -431,6 +436,7 @@ class Keithley2450Source(InstrumentChannel):
             label=self._proper_function,
             get_cmd=self.get_sweep_axis,
             vals=Arrays(shape=(self.parent.npts,)),
+            snapshot_value=False,
             unit=unit,
         )
 
@@ -441,7 +447,12 @@ class Keithley2450Source(InstrumentChannel):
             vals=Numbers(0, 1e4),
         )
 
-        self.add_parameter("user_number", get_cmd=None, set_cmd=None, vals=Ints(1, 5))
+        self.add_parameter("user_number", 
+                           get_cmd=None, 
+                           set_cmd=None, 
+                           initial_value=1,
+                           vals=Ints(1, 5)
+        )
 
         self.add_parameter(
             "user_delay",
