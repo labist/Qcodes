@@ -399,7 +399,7 @@ class InstrumentBase(MetadatableWithName, DelegateAttributes):
 
         # Min of 50 is to prevent a super long parameter name to break this
         # function
-        par_field_len = min(max(par_lengths) + 1, 50)
+        par_field_len = min(max(par_lengths) + 1, 50) if par_lengths else 0
 
         print(self.name + ":")
         print("{0:<{1}}".format("\tparameter ", par_field_len) + "value")
