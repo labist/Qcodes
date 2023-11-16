@@ -459,7 +459,7 @@ class Triton300(OxfordTriton):
             self._set_control_param('RANGE', 3.16)
         elif(temp < 0.5):
             self._set_control_param('RANGE', 10)
-        elif( temp < 1):
+        elif( temp <= 1.5):
             self._set_control_param('RANGE', 31.6)
         else :
             self._set_control_param('RANGE', 100.0 )
