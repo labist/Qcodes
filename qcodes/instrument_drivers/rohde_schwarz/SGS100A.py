@@ -53,7 +53,7 @@ class RohdeSchwarzSGS100A(VisaInstrument):
                            get_cmd='SOUR:POW?',
                            set_cmd='SOUR:POW {:.2f}',
                            get_parser=float,
-                           vals=vals.Numbers(-120, 25))
+                           vals=vals.Numbers(-20, 25)) # our model
         self.add_parameter('status',
                            label='RF Output',
                            get_cmd=':OUTP:STAT?',
