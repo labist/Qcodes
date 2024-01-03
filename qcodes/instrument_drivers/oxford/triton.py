@@ -99,6 +99,21 @@ class OxfordTriton(IPInstrument):
                            get_cmd=partial(self._get_control_param, 'RANGE'),
                            set_cmd=partial(self._set_control_param, 'RANGE'),
                            vals=Enum(*self._heater_range_curr))
+        
+        self.add_parameter(name='pid_P',
+                           label='PID P parameter',
+                           get_cmd=partial(self._get_control_param, 'P'),
+                           set_cmd=partial(self._set_control_param, 'P'))
+        
+        self.add_parameter(name='pid_I',
+                           label='PID I parameter',
+                           get_cmd=partial(self._get_control_param, 'I'),
+                           set_cmd=partial(self._set_control_param, 'I'))
+        
+        self.add_parameter(name='pid_D',
+                           label='PID D parameter',
+                           get_cmd=partial(self._get_control_param, 'D'),
+                           set_cmd=partial(self._set_control_param, 'D'))
 
         self.add_parameter(name='magnet_status',
                            label='Magnet status',
