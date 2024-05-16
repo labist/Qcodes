@@ -331,6 +331,18 @@ def load_experiment_by_name(
     else:
         args_to_find = {"name": name}
     exp_ids = get_matching_exp_ids(conn, **args_to_find)
+
+    """
+    Different machines have different names this is why read-only was impossible
+    and new experiment was always created. Now the problem is partially fixed:
+    we don't check that experiment name is correct (we assume that there is just
+    one experiment in a single database which is usually true).
+    """
+    # TODO: fix this hack
+    if len(exp_ids) == 0:
+        args_to_find.pop("name")
+        exp_ids = get_matching_exp_ids(conn, **args_to_find)
+
     if len(exp_ids) == 0:
         raise ValueError("Experiment not found")
     elif len(exp_ids) > 1:
@@ -360,6 +372,7 @@ def load_or_create_experiment(
     sample_name: str | None = None,
     conn: ConnectionPlus | None = None,
     load_last_duplicate: bool = False,
+    read_only: bool = False,
 ) -> Experiment:
     """
     Find and return an experiment with the given name and sample name,
@@ -380,7 +393,7 @@ def load_or_create_experiment(
         ValueError: If the name and sample name are not unique, unless
             load_last_duplicate is True.
     """
-    conn = conn or connect(get_DB_location())
+    conn = conn or connect(get_DB_location(), read_only=read_only)
     try:
         experiment = load_experiment_by_name(
             experiment_name,
