@@ -338,11 +338,10 @@ def load_experiment_by_name(
     we don't check that experiment name is correct (we assume that there is just
     one experiment in a single database which is usually true).
     """
-    # TODO: fix this hack
+    # TODO: fix this temporary hack
     if len(exp_ids) == 0:
         args_to_find.pop("name")
         exp_ids = get_matching_exp_ids(conn, **args_to_find)
-
     if len(exp_ids) == 0:
         raise ValueError("Experiment not found")
     elif len(exp_ids) > 1:
