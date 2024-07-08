@@ -17,7 +17,6 @@
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
 import os
-import sys
 from abc import ABCMeta
 from importlib import reload
 
@@ -47,15 +46,20 @@ reload(qcodes.instrument)
 
 import qcodes  # noqa F402
 
-matplotlib.use('Agg')
+# sphinx 6.2 -> 7.1 produces a warning
+# Debugger warning: It seems that frozen modules are being used, which may
+# make the debugger miss breakpoints. Please pass -Xfrozen_modules=off
+# to python to disable frozen modules.
+# Since we are not debugging we disable it here
+os.environ["PYDEVD_DISABLE_FILE_VALIDATION"] = "1"
 
-sys.path.insert(0, os.path.abspath('..'))
+matplotlib.use('Agg')
 
 # -- General configuration ------------------------------------------------
 
 # If your documentation needs a minimal Sphinx version, state it here.
-#
-# needs_sphinx = '1.0'
+# Needed for show_warning_types support
+needs_sphinx = "7.3.5"
 
 # Add any Sphinx extension module names here, as strings. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
@@ -110,9 +114,9 @@ nbsphinx_prolog = r"""
     <div class="admonition note">
       <p>This page was generated from
         <a class="reference external"
-        href="https://github.com/qcodes/qcodes/blob/master/{{docname|e}}">{{ docname|replace("\\","/") }}</a>.
+        href="https://github.com/qcodes/qcodes/blob/main/{{docname|e}}">{{ docname|replace("\\","/") }}</a>.
         Interactive online version:
-        <a href="https://mybinder.org/v2/gh/qcodes/qcodes/master?filepath={{
+        <a href="https://mybinder.org/v2/gh/qcodes/qcodes/main?filepath={{
         docname|replace("\\","/") }}"><img
     alt="Binder badge"
         src="https://mybinder.org/badge_logo.svg"
@@ -453,6 +457,7 @@ autodoc_typehints_format = "short"
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
 
+show_warning_types = True
 # we are using non local images for badges. These will change so we dont
 # want to store them locally.
 suppress_warnings = ['image.nonlocal_uri']

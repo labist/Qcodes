@@ -3,23 +3,32 @@ name: Lint with Darker
 on:
   push:
     branches:
-      - 'master'
+      - 'main'
       - 'release/*'
   pull_request:
+  merge_group:
+    branches: ['main']
+
+permissions:
+  contents: read
 
 jobs:
   lint-with-darker:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3.5.2
+      - name: Harden Runner
+        uses: step-security/harden-runner@17d0e2bd7d51742c71671bd19fa12bdc9d40a3d6 # v2.8.1
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@82c7e631bb3cdc910f68e0081d67478d79c6982d # v5.1.0
         with:
           python-version: "3.11"
-      - uses: akaihola/darker@1.7.0
+      - uses: akaihola/darker@0fcbba37081b4801113c2b017ee5134ecc8b3cd0 # 2.1.1
         with:
           options: "--check --diff"
-          src: "./qcodes"
-          revision: "origin/master..."
-          version: "@e3c210b5c1b91400c3f317b2474c10ab23bec1cf"
+          src: "./src/qcodes"
+          revision: "origin/main..."

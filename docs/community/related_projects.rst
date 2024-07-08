@@ -25,7 +25,7 @@ with ``pip install qcodes_contrib_drivers``
 The source code is hosted on Github
 `here <https://github.com/qcodes/qcodes_contrib_drivers>`__
 and the documentation can be found
-`here <https://qcodes.github.io/Qcodes_contrib_drivers/>`__
+`here <https://microsoft.github.io/Qcodes_contrib_drivers/>`__
 
 
 Broadbean
@@ -98,7 +98,7 @@ and analysis scripts. QTT is based on Qcodes and the SciPy ecosystem.
 
 Quantify
 --------
-Quantify is a Python-based framework that enables quantum computing users to program hybrid gate-level / pulse-level physics experiments, in a hardware-agnostic manner through `quantify-scheduler <https://quantify-quantify-scheduler.readthedocs-hosted.com>`__, and to automate data acquisition and execution of these experiments with `quantify-core <https://quantify-quantify-core.readthedocs-hosted.com>`__.
+Quantify is a Python-based framework that enables quantum computing users to program hybrid gate-level / pulse-level physics experiments, in a hardware-agnostic manner through `quantify-scheduler <https://quantify-os.org/docs/quantify-scheduler>`__, and to automate data acquisition and execution of these experiments with `quantify-core <https://quantify-os.org/docs/quantify-core>`__.
 
 GitLab: `quantify-core <https://gitlab.com/quantify-os/quantify-core>`__ |  `quantify-scheduler <https://gitlab.com/quantify-os/quantify-scheduler>`__
 

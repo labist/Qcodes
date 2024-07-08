@@ -1,7 +1,7 @@
 [build-system]
 requires = [
-    "setuptools >= 61.2",
-    "versioningit ~= 2.0.1",
+    "setuptools >= 68.1.0",
+    "versioningit >= 2.2.1",
 ]
 build-backend = 'setuptools.build_meta'
 
@@ -14,46 +14,48 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering",
 ]
 license = {text = "MIT"}
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 dependencies = [
     "broadbean>=0.9.1",
     "h5netcdf>=0.10.0,!=0.14.0",
     # see https://github.com/h5netcdf/h5netcdf/issues/154
     "h5py>=3.0.0",
     "importlib-metadata>=4.4; python_version < '3.10'",
-    "importlib-resources>=2.0.0; python_version < '3.9'",
-    "ipywidgets>=7.5.0,<9.0.0",
-    "ipykernel>=6.0.0", # implicitly required by ipywidgets >=8.0.5
-    "jsonschema>=3.2.0",
-    "matplotlib>=3.3.0",
+    "ipywidgets>=8.0.0,<9.0.0",
+    "ipykernel>=6.6.0", # implicitly required by ipywidgets >=8.0.5
+    "jsonschema>=4.9.0",
+    "matplotlib>=3.3.3",
     "numpy>=1.21.0",
-    "opencensus>=0.7.10",
-    "opencensus-ext-azure>=1.0.4, <2.0.0",
     "packaging>=20.0",
-    "pandas>=1.0.0",
-    "pyvisa>=1.11.0, <1.14.0",
+    "pandas>=1.2.0",
+    "pyarrow>=11.0.0", # will become a requirement of pandas. Installing explicitly silences a warning
+    "pyvisa>=1.11.0, <1.15.0",
     "ruamel.yaml>=0.16.0,!=0.16.6",
     "tabulate>=0.8.0",
-    "typing_extensions>=4.1.1",
-    "tqdm>=4.32.2",
+    "typing_extensions>=4.5.0",
+    "tqdm>=4.59.0",
     "uncertainties>=3.1.4",
-    "versioningit>=2.0.1",
-    "websockets>=9.0",
-    "wrapt>=1.10.4",
-    "xarray>=0.18.0",
+    "versioningit>=2.2.1",
+    "websockets>=9.1",
+    "wrapt>=1.13.2; python_version < '3.12'",
+    "wrapt>=1.16.0; python_version >= '3.12'",
+    "xarray>=2022.06.0",
+    "cf_xarray>=0.8.4",
+    "opentelemetry-api>=1.15.0",
+    "dask>=2022.1.0", # we are making use of xarray features that requires dask implicitly
     # transitive dependencies. We list these explicitly to",
     # ensure that we always use versions that do not have",
     # known security vulnerabilities",
+    "tornado>=6.3.3",
     "ipython>=8.10.0",
     "pillow>=9.0.0",
-    "rsa>=4.7",
 ]
 
 dynamic = ["version"]
@@ -64,34 +66,29 @@ content-type = "text/x-rst"
 
 [project.urls]
 Homepage = "https://github.com/QCoDeS/Qcodes"
-Documentation = "https://qcodes.github.io/Qcodes/"
+Documentation = "https://microsoft.github.io/Qcodes/"
 Source = "https://github.com/qcodes/qcodes"
 Tracker = "https://github.com/QCoDeS/Qcodes/issues"
-Changelog = "https://qcodes.github.io/Qcodes/changes/index.html"
+Changelog = "https://microsoft.github.io/Qcodes/changes/index.html"
 
 [project.optional-dependencies]
-qtplot = ["pyqtgraph>=0.11.0"]
-# can be removed once deprecated pyqtgraph module is removed
-slack = ["slack-sdk>=3.4.2"]
-# can be removed once deprecated slack are removed
 zurichinstruments = ["zhinst-qcodes>=0.3"]
-loop = ["qcodes_loop>=0.1.1"]
+loop = ["qcodes_loop>=0.1.2"]
 test = [
     "coverage[toml]>=6.0.0",
     "deepdiff>=5.0.2",
-    "hypothesis>=5.49.0",
-    "lxml>=4.4.1",
+    "hypothesis>=6.85.0",
+    "lxml>=4.6.0",
     "lxml-stubs>=0.4.0",
     "mypy>=0.971",
     "pandas-stubs>=1.2.0.1",
-    "pytest>=6.2.0",
+    "pytest>=7.2.0",
     "pytest-asyncio>=0.19.0",
     "pytest-cov>=3.0.0",
     "pytest-mock>=3.0.0",
     "pytest-rerunfailures>=10.0",
     "pytest-xdist>=2.0.0",
-    "PyVisa-sim>=0.4.0",
-    "slack-sdk>=3.4.2", # can be dropped when deprecated slack ext is deleted
+    "PyVisa-sim>=0.6.0",
     "sphinx>=4.5.0",  # sphinx extension tests
     "types-jsonschema>=4.16.0",
     "types_requests>=0.1.8",
@@ -101,12 +98,14 @@ test = [
     "types_pywin32>=305.0.0.7",
     "qcodes_loop>=0.1.1",
     "zhinst.qcodes>=0.5", # typecheck zhinst driver alias
+    "libcst>=1.2.0", # refactor tests
+    "jinja2>=3.1.3", # transitive dependency pin due to cve in earlier version
 ]
 docs = [
     "autodocsumm>=0.2.9",
     "nbsphinx>=0.8.9",
-    "PyVisa-sim>=0.4.0",
-    "sphinx>=6.2.0",
+    "PyVisa-sim>=0.6.0",
+    "sphinx>=7.3.5",
     "sphinx-favicon>=1.0",
     "sphinx-issues>=3.0.1",
     "sphinx-jsonschema>=1.19.1",
@@ -115,10 +114,19 @@ docs = [
     "towncrier>=22.8.0",
     "scipy>=1.7.0", # examples using scipy
     "qcodes_loop>=0.1.1", # legacy dataset import examples
+    "jinja2>=3.1.3", # transitive dependency pin due to cve in earlier version
+]
+opencensus = [
+    "opencensus>=0.7.10",
+    "opencensus-ext-azure>=1.0.4, <2.0.0",
+]
+refactor = [
+    "libcst>=1.2.0"
 ]
 
 [project.scripts]
 qcodes-monitor = "qcodes.monitor.monitor:main"
+qcodes-refactor = "qcodes.extensions._refactor:main"
 qcodes-dynacool-server = "qcodes.instrument_drivers.QuantumDesign.DynaCoolPPMS.private.server:run_server"
 
 [project.entry-points."qcodes.dataset.on_export"]
@@ -126,10 +134,9 @@ log_exported_ds = "qcodes.extensions:log_dataset_export_info"
 
 [tool.coverage.run]
 omit = [
-    "qcodes/__init__.py",
+    "src/qcodes/__init__.py",
     "*/__init__.py",
-    "qcodes/tests/*",
-    "qcodes/instrument_drivers/test.py"
+    "src/qcodes/tests/*",
 ]
 [tool.coverage.report]
 exclude_lines = [
@@ -138,10 +145,8 @@ exclude_lines = [
 ]
 
 [tool.darker]
-isort = true
-
-[tool.isort]
-profile = "black"
+# done via ruff
+isort = false
 
 [tool.mypy]
 strict_optional = true
@@ -173,143 +178,157 @@ warn_unused_ignores = true
 warn_return_any = false
 no_implicit_reexport = true
 strict_equality = true
-strict_concatenate = true
 
 [[tool.mypy.overrides]]
 module = [
+    "tests.*",
     "qcodes.tests.*",
     "qcodes.instrument.mockers.ami430",
     "qcodes.instrument_drivers.Harvard.*",
     "qcodes.instrument_drivers.Keysight.keysightb1500.message_builder.*",
-    # deprecated non typed modules
-    "qcodes.actions.*",
-    "qcodes.data.*",
-    "qcodes.loops",
-    "qcodes.measure",
-    "qcodes.plots.*",
-    "qcodes.utils.magic",
-    "qcodes.extensions.slack",
 ]
 disallow_untyped_defs = false
 disallow_incomplete_defs = false
 
 # these are packages that we import
-# but either don't have stubs or we
-# dont have them installed.
+# but don't have installed by default
+# ruamel https://github.com/python/mypy/issues/12664
 [[tool.mypy.overrides]]
 module = [
     "clr",
-    "deepdiff",
     "gclib",
-    "ipywidgets",
-    "h5netcdf",
-    "lomentum.tools",
-    "matplotlib.*",
     "mcl_RF_Switch_Controller64",
     "mcl_RF_Switch_Controller_NET45",
-    "opencensus.ext.azure.*",
     "pywinusb.*",
-    "pyqtgraph.*", # can be droped once deprecated plots module is deleted
     "ruamel",
     "spyder.utils.site",
     "spyder_kernels.customize",
     "System.IO",
-    "uncertainties",
-    "wrapt",
 ]
 ignore_missing_imports = true
 
 [tool.pyright]
-include = ["qcodes"]
+include = ["src","tests"]
 ignore = [
-    "qcodes/instrument_drivers/Harvard/Decadac.py",
-    # deprecated non typed modules
-    "qcodes/actions.py",
-    "qcodes/data",
-    "qcodes/loops.py",
-    "qcodes/measure.py",
-    "qcodes/plots/pyqtgraph.py",
-    "qcodes/plots/qcmatplotlib.py",
-    "qcodes/plots/base.py",
-    "qcodes/extensions/slack.py"
+    "src/qcodes/instrument_drivers/Harvard/Decadac.py",
     ]
 reportMissingTypeStubs = true
+reportDeprecated = true
+stubPath = "typings/stubs"
+
+typeCheckingMode = "standard"
 
 [tool.pytest.ini_options]
-minversion = "6.0"
+minversion = "7.2"
 junit_family = "legacy"
-
+testpaths = "tests"
 addopts = "-n auto --dist=loadfile"
 
 markers = "serial"
 
-# warnings triggered by xarray and hdf5netcdf using deprecated apis
+# we ignore warnings
+# triggered by third party packages
+# and error on all other warnings
 filterwarnings = [
-    "ignore:The distutils package is deprecated and slated for removal in Python 3.12:DeprecationWarning",
-    "ignore:distutils Version classes are deprecated:DeprecationWarning",
-    "ignore:SelectableGroups dict interface is deprecated:DeprecationWarning"
+    'error',
+    'ignore:Deprecated call to `pkg_resources\.declare_namespace:DeprecationWarning',  # google, sphinxcontrib
+    'ignore:pkg_resources is deprecated as an API:DeprecationWarning', # pyvisa-sim
+    'ignore:open_binary is deprecated:DeprecationWarning', # pyvisa-sim
+    'ignore:datetime.datetime.utcfromtimestamp\(\) is deprecated and scheduled for removal in a future version:DeprecationWarning', # tqdm dateutil
+    'ignore:Jupyter is migrating its paths to use standard platformdirs:DeprecationWarning' # jupyter
 ]
 
 [tool.ruff]
+
+extend-include = ["*.ipynb"]
+extend-exclude = ["typings"]
+
+[tool.ruff.lint]
 # Enable Pyflakes `E` and `F` codes by default.
-select = ["E", "F", "PT025"]
+# UP pyupgrade
+# PT025 invalid use of pytest fixtures in other fixtures
+# RUF200 validate pyproject.toml
+# I isort
+# ISC flake8-implicit-str-concat
+# TID253 banned-module-level-imports
+# W pydocstyle
+# PLx pylint
+select = ["E", "F", "PT025", "UP", "RUF010", "RUF012", "RUF200", "I", "G", "ISC", "TID253", "NPY", "PLE", "PLR", "PLC", "PLW", "W", "D417", "D416", "D410", "D411", "D412", "D405", "D214", "TCH"]
 # darker will fix this as code is
 # reformatted when it is changed.
-ignore = ["E501"]
+# G004 We have a lot of use of f strings in log messages
+# so disable that lint for now
+# NPY002 We have a lot of use of the legacy
+# random number generator. Eventually we should port this
+# code.
+# PLxxxx are pylint lints that generate a fair amount of warnings
+# it may be worth fixing some or these in the future
+ignore = ["E501", "G004", "NPY002", "PLR2004", "PLR0913", "PLR0911", "PLR0912", "PLR0915", "PLW0602", "PLW0603", "PLW2901"]
 
-[tool.ruff.per-file-ignores]
+[tool.ruff.lint.isort]
+
+known-first-party = ["qcodes"]
+
+[tool.ruff.lint.per-file-ignores]
 # deprecated modules left
 # for backwards compatibility
-"qcodes/actions.py" = ["F401"]
-"qcodes/data/__init__.py" = ["F401"]
-"qcodes/data/data_array.py" = ["F401"]
-"qcodes/data/data_set.py" = ["F401"]
-"qcodes/data/format.py" = ["F401"]
-"qcodes/data/gnuplot_format.py" = ["F401"]
-"qcodes/data/hdf5_format.py" = ["F401"]
-"qcodes/data/hdf5_format_hickle.py" = ["F401"]
-"qcodes/data/io.py" = ["F401"]
-"qcodes/data/location.py" = ["F401"]
-"qcodes/plots/pyqtgraph.py" = ["F401"]
-"qcodes/plots/qcmatplotlib.py" = ["F401"]
-"qcodes/loops.py" = ["F401"]
-"qcodes/measure.py" = ["F401"]
-"qcodes/plots/base.py" = ["F401"]
-"qcodes/plots/colors.py" = ["F401"]
-"qcodes/utils/validators.py" = ["F401"]
-"qcodes/utils/threading.py" = ["F401"]
-"qcodes/utils/qt_helpers.py" = ["F401"]
-"qcodes/utils/plotting.py" = ["F401"]
-"qcodes/utils/metadata.py" = ["F401"]
-"qcodes/utils/magic.py" = ["F401"]
-"qcodes/utils/helpers.py" = ["F401"]
-"qcodes/extensions/slack.py" = ["F401"]
-"qcodes/instrument_drivers/AimTTi/AimTTi_PL601P_channels.py" = ["F401"]
-"qcodes/instrument_drivers/tektronix/Keithley_6500.py" = ["F401"]
-"qcodes/instrument_drivers/tektronix/Keithley_2600_channels.py" = ["F401"]
-"qcodes/instrument_drivers/tektronix/Keithley_2450.py" = ["F401"]
-"qcodes/instrument_drivers/tektronix/keithley_7510.py" = ["F401"]
-"qcodes/instrument_drivers/signal_hound/USB_SA124B.py" = ["F401"]
-"qcodes/instrument_drivers/rohde_schwarz/RTE1000.py" = ["F401"]
-"qcodes/instrument_drivers/rigol/DS4000.py" = ["F401"]
-"qcodes/instrument_drivers/rigol/DG4000.py" = ["F401"]
-"qcodes/instrument_drivers/rigol/DP832.py" = ["F401"]
-"qcodes/instrument_drivers/rigol/DP831.py" = ["F401"]
-"qcodes/instrument_drivers/rigol/DP821.py" = ["F401"]
-"qcodes/instrument_drivers/rigol/DS1074Z.py" = ["F401"]
-"qcodes/instrument_drivers/rigol/DG1062.py" = ["F401"]
-"qcodes/instrument_drivers/devices.py" = ["F401"]
-"qcodes/instrument_drivers/basel/sp983c_remote.py" = ["F401"]
-"qcodes/instrument_drivers/Lakeshore/Model_325.py" = ["F401"]
-"qcodes/instrument_drivers/Lakeshore/Model_336.py" = ["F401"]
-"qcodes/instrument_drivers/Lakeshore/Model_372.py" = ["F401"]
-"qcodes/instrument_drivers/Minicircuits/RUDAT_13G_90.py" = ["F401"]
-"qcodes/instrument_drivers/HP/HP8133A.py" = ["F401"]
-"qcodes/instrument_drivers/HP/HP8753D.py" = ["F401"]
-"qcodes/instrument_drivers/Keysight/N9030B.py" = ["F401"]
+"src/qcodes/utils/validators.py" = ["F401"]
+"src/qcodes/utils/threading.py" = ["F401"]
+"src/qcodes/utils/plotting.py" = ["F401"]
+"src/qcodes/utils/metadata.py" = ["F401"]
+"src/qcodes/utils/helpers.py" = ["F401"]
+"src/qcodes/instrument_drivers/AimTTi/AimTTi_PL601P_channels.py" = ["F401"]
+"src/qcodes/instrument_drivers/tektronix/Keithley_6500.py" = ["F401"]
+"src/qcodes/instrument_drivers/tektronix/Keithley_2600_channels.py" = ["F401"]
+"src/qcodes/instrument_drivers/tektronix/Keithley_2450.py" = ["F401"]
+"src/qcodes/instrument_drivers/tektronix/keithley_7510.py" = ["F401"]
+"src/qcodes/instrument_drivers/signal_hound/USB_SA124B.py" = ["F401"]
+"src/qcodes/instrument_drivers/rohde_schwarz/RTE1000.py" = ["F401"]
+"src/qcodes/instrument_drivers/rigol/DS4000.py" = ["F401"]
+"src/qcodes/instrument_drivers/rigol/DG4000.py" = ["F401"]
+"src/qcodes/instrument_drivers/rigol/DP832.py" = ["F401"]
+"src/qcodes/instrument_drivers/rigol/DP831.py" = ["F401"]
+"src/qcodes/instrument_drivers/rigol/DP821.py" = ["F401"]
+"src/qcodes/instrument_drivers/rigol/DS1074Z.py" = ["F401"]
+"src/qcodes/instrument_drivers/rigol/DG1062.py" = ["F401"]
+"src/qcodes/instrument_drivers/devices.py" = ["F401"]
+"src/qcodes/instrument_drivers/basel/sp983c_remote.py" = ["F401"]
+"src/qcodes/instrument_drivers/Lakeshore/Model_325.py" = ["F401"]
+"src/qcodes/instrument_drivers/Lakeshore/Model_336.py" = ["F401"]
+"src/qcodes/instrument_drivers/Lakeshore/Model_372.py" = ["F401"]
+"src/qcodes/instrument_drivers/Minicircuits/RUDAT_13G_90.py" = ["F401"]
+"src/qcodes/instrument_drivers/HP/HP8133A.py" = ["F401"]
+"src/qcodes/instrument_drivers/HP/HP8753D.py" = ["F401"]
+"src/qcodes/instrument_drivers/Keysight/N9030B.py" = ["F401"]
 
-"qcodes/instrument_drivers/Keysight/KtM960x.py" = ["F405"]
-"qcodes/instrument_drivers/Keysight/KtMAwg.py" = ["F405"]
+"src/qcodes/instrument_drivers/Keysight/KtM960x.py" = ["F405"]
+"src/qcodes/instrument_drivers/Keysight/KtMAwg.py" = ["F405"]
+
+# This triggeres in notebooks even with a md cell at the top
+"*.ipynb" = ["E402"]
+
+# TID253 these imports are fine at module level
+# in tests and examples
+# D417 no need to fix in deprecated module
+"docs/*" = ["TID253"]
+"src/qcodes/tests/*" = ["TID253", "D417"]
+"tests/*" = ["TID253"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+# There modules are relatively slow to import
+# and only required in specific places so
+# don't import them at module level
+banned-module-level-imports = ["xarray", "pandas", "opencensus", "tqdm.dask", "dask", "matplotlib", "IPython"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.flake8-type-checking]
+quote-annotations = true
+
+[tool.setuptools.cmdclass]
+sdist = "versioningit.cmdclass.sdist"
+build_py = "versioningit.cmdclass.build_py"
 
 [tool.towncrier]
 package = "qcodes"
@@ -345,5 +364,5 @@ method = "git"
 match = ["v*"]
 
 [tool.versioningit.onbuild]
-source-file = "qcodes/_version.py"
+source-file = "src/qcodes/_version.py"
 build-file = "qcodes/_version.py"
