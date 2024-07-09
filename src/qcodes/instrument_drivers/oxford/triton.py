@@ -171,6 +171,28 @@ class OxfordTriton(IPInstrument):
         )
         """Parameter pid_range"""
 
+        self.mc_heater_pwr: Parameter = self.add_parameter(
+            name='mc_heater_pwr',
+            label='Mixing chamber heater power',
+            unit='W',
+            get_cmd='READ:DEV:H1:HTR:SIG:POWR',
+            set_cmd='SET:DEV:H1:HTR:SIG:POWR:{}',
+            get_parser=self._parse_htr,
+            set_parser=float,
+            vals=Numbers(0, 300000))
+        """Parameter mc_heater_pwr"""
+
+        self.still_heater_pwr: Parameter = self.add_parameter(
+            name='still_heater_pwr',
+            label='Still heater power',
+            unit='W',
+            get_cmd='READ:DEV:H2:HTR:SIG:POWR',
+            set_cmd='SET:DEV:H2:HTR:SIG:POWR:{}',
+            get_parser=self._parse_htr,
+            set_parser=float,
+            vals=Numbers(0, 300000))
+        """Parameter still_heater_pwr"""
+        
         self.magnet_status: Parameter = self.add_parameter(
             name="magnet_status",
             label="Magnet status",
@@ -550,6 +572,11 @@ class OxfordTriton(IPInstrument):
             return None
         return float(msg.split("SIG:PRES:")[-1].strip("mB")) * 1e3
 
+    def _parse_htr(self, msg):
+        if 'NOT_FOUND' in msg:
+            return None
+        return float(msg.split('SIG:POWR:')[-1].strip('uW'))/1e6
+
     def _recv(self) -> str:
         return super()._recv().rstrip()
 
@@ -593,6 +620,42 @@ class OxfordTriton(IPInstrument):
             return None
         return msg.split(f"{key}:")[-1]
 
+class Triton300(OxfordTriton):
+    '''
+    Triton 300 Driver.
+    
+    Automatically adjust heater range for Triton 300
+    '''
+    
+    def __init__(self, name, address=None, port=None, terminator='\r\n',
+                tmpfile=None, timeout=20, **kwargs):
+    
+        super().__init__(name, address=address, port=port,
+                        terminator=terminator, timeout=timeout, **kwargs)
+                    
+        self.add_parameter(name='pid_setpoint_autorange',
+                    label='PID temperature setpoint',
+                    unit='K',
+                    get_cmd=partial(self._get_control_param, 'TSET'),
+                    set_cmd=self._set_pid_setpoint_autorange,
+                    vals=Numbers(0,10)
+        )
+
+    def _set_pid_setpoint_autorange(self, temp):
+        ''' Set the PID setpoint, automatically adjusting the heater range
+        '''
+        if(temp < 0.065):
+            self._set_control_param('RANGE', 1)
+        elif(temp < 0.15):
+            self._set_control_param('RANGE', 3.16)
+        elif(temp < 0.5):
+            self._set_control_param('RANGE', 10)
+        elif( temp <= 1.5):
+            self._set_control_param('RANGE', 31.6)
+        else :
+            self._set_control_param('RANGE', 100.0 )
+
+        self._set_control_param('TSET', temp)
 
 Triton = OxfordTriton
 """Alias for backwards compatibility"""
