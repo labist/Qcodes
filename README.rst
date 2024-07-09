@@ -5,13 +5,11 @@ QCoDeS |PyPi| |DOCS| |PyPI python versions| |DOI|
 MERGE v0.46.0.x TODOs
 
 -does mercury simple ramp code still work? is it needed?
--add in legacy SGS100A code
 -add in legacy triton code
 -pull request on Keithley code?
 see these files for details:
         src/qcodes/instrument_drivers/oxford/legacy_changes.txt
         src/qcodes/instrument_drivers/oxford/triton_legacy.py
-        src/qcodes/instrument_drivers/rohde_schwarz/TODO.txt
 
 QCoDeS is a Python-based data acquisition framework developed by the
 Copenhagen / Delft / Sydney / Microsoft quantum computing consortium.

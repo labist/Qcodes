@@ -110,3 +110,6 @@ qcodes/tests/*.db
 
 # Do not ignore pyright npm version file
 !.github/package.json
+
+# Ignore vim swap files
+*.swp

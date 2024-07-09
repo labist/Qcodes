@@ -44,7 +44,7 @@ class RohdeSchwarzSGS100A(VisaInstrument):
 
         self.frequency: Parameter = self.add_parameter(
             name="frequency",
-            label="Frequency",
+            label='$f_{\\mathrm{SGS}}$',
             unit="Hz",
             get_cmd="SOUR:FREQ?",
             set_cmd="SOUR:FREQ {:.2f}",
@@ -54,7 +54,7 @@ class RohdeSchwarzSGS100A(VisaInstrument):
         """Parameter frequency"""
         self.phase: Parameter = self.add_parameter(
             name="phase",
-            label="Phase",
+            label='$\\phi_{\\mathrm{SGS}}$',
             unit="deg",
             get_cmd="SOUR:PHAS?",
             set_cmd="SOUR:PHAS {:.2f}",
@@ -64,7 +64,7 @@ class RohdeSchwarzSGS100A(VisaInstrument):
         """Parameter phase"""
         self.power: Parameter = self.add_parameter(
             name="power",
-            label="Power",
+            label='$P_{\\mathrm{SG}}$',
             unit="dBm",
             get_cmd="SOUR:POW?",
             set_cmd="SOUR:POW {:.2f}",
