@@ -1,4 +1,5 @@
 import re
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Union
 
 import numpy as np
@@ -174,7 +175,7 @@ class DSOTraceParam(ParameterWithSetpoints):
         Update waveform parameters. Must be called before data
         acquisition if instr.cache_setpoints is False
         """
-        instrument: Union[KeysightInfiniiumChannel, KeysightInfiniiumFunction]
+        instrument: KeysightInfiniiumChannel | KeysightInfiniiumFunction
         instrument = self.instrument  # type: ignore[assignment]
         if preamble is None:
             instrument.write(f":WAV:SOUR {self._channel}")
@@ -701,6 +702,24 @@ class KeysightInfiniiumChannel(InstrumentChannel):
         self._channel = channel
 
         super().__init__(parent, name, **kwargs)
+
+        # input
+        # On MXR/EXR-Series oscilloscopes:
+        # DC — DC coupling, 1 MΩ impedance.
+        # DC50 | DCFifty — DC coupling, 50Ω impedance.
+        # AC — AC coupling, 1 MΩ impedance.
+        # LFR1 | LFR2 — AC 1 MΩ input impedance.
+        # When no probe is attached, the coupling for each channel can be AC, DC, DC50, or DCFifty.
+        # If you have an 1153A probe attached, the valid parameters are DC, LFR1, and LFR2 (low-frequency reject).
+        self.input: Parameter = Parameter(
+            name="input",
+            instrument=self,
+            label=f"Channel {channel} input coupling & impedance",
+            set_cmd=f"CHAN{channel}:INP {{}}",
+            get_cmd=f"CHAN{channel}:INP?",
+            vals=vals.Enum("DC", "DC50", "AC", "LFR1", "LFR2"),
+        )
+
         # display
         self.display: Parameter = Parameter(
             name="display",
@@ -927,7 +946,7 @@ class KeysightInfiniium(VisaInstrument):
             set_cmd=":TRIGger:EDGE:SOURce {}",
             vals=vals.Enum(
                 *(
-                    [f"CHAN{i}" for i in range(1, 4 + 1)]
+                    [f"CHAN{i}" for i in range(1, self.no_channels + 1)]
                     + [f"DIG{i}" for i in range(16 + 1)]
                     + ["AUX", "LINE"]
                 )
@@ -1122,7 +1141,7 @@ class KeysightInfiniium(VisaInstrument):
         # Sample Rate
         try:
             # Set BW to auto in order to query this
-            bw_set: Union[float, Literal["AUTO"]] = float(self.ask(":ACQ:BAND?"))
+            bw_set: float | Literal["AUTO"] = float(self.ask(":ACQ:BAND?"))
             if np.isclose(bw_set, self.max_bw):
                 # Auto returns max bandwidth
                 bw_set = "AUTO"
@@ -1199,7 +1218,7 @@ class KeysightInfiniium(VisaInstrument):
             if channel.display():
                 channel.update_setpoints()
 
-    def digitize(self, timeout: Optional[int] = None) -> None:
+    def digitize(self, timeout: int | None = None) -> None:
         """
         Digitize a full waveform and block until the acquisition is complete.
 
@@ -1236,6 +1255,46 @@ class KeysightInfiniium(VisaInstrument):
             self.device_clear()
             if timeout is not None:
                 self.visa_handle.timeout = old_timeout
+
+    def screenshot(
+        self,
+        path: str | Path = "./screenshot",
+        with_time: bool = False,
+        time_fmt: str = "%Y-%m-%d_%H-%M-%S",
+        divider: str = "_",
+    ) -> np.ndarray | None:
+        """save screen to {path} with {image_type}: bmp, jpg, gif, tif, png
+
+        return np.array if sucessfully saved, else return None
+        """
+        from datetime import datetime
+        from io import BytesIO
+        from os.path import splitext
+
+        from PIL.Image import open as pil_open
+
+        if isinstance(path, Path):
+            path = str(path)
+
+        time_str = datetime.now().strftime(time_fmt) if with_time else ""
+        img_name, img_type = splitext(path)
+        img_path = (
+            f"{img_name}{divider if with_time else ''}{time_str}{img_type.lower()}"
+        )
+        try:
+            with open(img_path, "wb") as f:
+                screen_bytes = self.visa_handle.query_binary_values(
+                    f":DISPlay:DATA? {img_type.upper()[1:]}",  # without .
+                    # https://docs.python.org/3/library/struct.html#format-characters
+                    datatype="B",  # Capitcal B for unsigned byte
+                    container=bytes,
+                )
+                f.write(screen_bytes)  # type: ignore[arg-type]
+            print(f"Screen image written to {img_path}")
+            return np.asarray(pil_open(BytesIO(screen_bytes)))  # type: ignore[arg-type]
+        except Exception as e:
+            self.log.error(f"Failed to save screenshot, Error occurred: \n{e}")
+            return None
 
 
 Infiniium = KeysightInfiniium

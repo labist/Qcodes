@@ -1,10 +1,11 @@
 """
 A mixin module for USB Human Interface Device instruments
 """
+
 import os
 import struct
 import time
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from typing_extensions import deprecated
 
@@ -32,14 +33,13 @@ if TYPE_CHECKING:
     category=QCoDeSDeprecationWarning,
 )
 class USBHIDMixin(Instrument):
-
     # The following class attributes should be set by subclasses
     vendor_id = 0x0000
     product_id = 0x0000
 
     @staticmethod
     def _check_hid_import() -> None:
-        if os.name != 'nt':
+        if os.name != "nt":
             raise ImportError("This driver only works on Windows.")
 
         if imported_hid is False:
@@ -51,7 +51,7 @@ class USBHIDMixin(Instrument):
     def __init__(
         self,
         name: str,
-        instance_id: Optional[str] = None,
+        instance_id: str | None = None,
         timeout: float = 2,
         **kwargs: "Unpack[InstrumentBaseKWArgs]",
     ):
@@ -70,19 +70,20 @@ class USBHIDMixin(Instrument):
         devs = hid.HidDeviceFilter(  # pyright: ignore[reportPossiblyUnboundVariable]
             product_id=self.product_id,
             vendor_id=self.vendor_id,
-            instance_id=instance_id
+            instance_id=instance_id,
         ).get_devices()
 
         if len(devs) == 0:
             raise RuntimeError("No instruments found!")
         elif len(devs) > 1:
-            raise RuntimeError("Multiple HID devices detected! Please supply "
-                               "a instance id")
+            raise RuntimeError(
+                "Multiple HID devices detected! Please supply a instance id"
+            )
 
         self._device = devs[0]
         self._device.open()
 
-        self._data_buffer: Optional[bytes] = None
+        self._data_buffer: bytes | None = None
         self._device.set_raw_data_handler(self._handler)
 
         self._timeout = timeout
@@ -93,7 +94,7 @@ class USBHIDMixin(Instrument):
     def _handler(self, data: bytes) -> None:
         self._data_buffer = data
 
-    def _get_data_buffer(self) -> Optional[bytes]:
+    def _get_data_buffer(self) -> bytes | None:
         data = self._data_buffer
         self._data_buffer = None
         return data
@@ -119,8 +120,7 @@ class USBHIDMixin(Instrument):
 
         result = self._device.send_output_report(data)
         if not result:
-            raise RuntimeError(f"Communication with device failed for command "
-                               f"{cmd}")
+            raise RuntimeError(f"Communication with device failed for command {cmd}")
 
     def ask_raw(self, cmd: str) -> str:
         """
@@ -165,8 +165,7 @@ class USBHIDMixin(Instrument):
         cls._check_hid_import()
 
         devs = hid.HidDeviceFilter(  # pyright: ignore[reportPossiblyUnboundVariable]
-            porduct_id=cls.product_id,
-            vendor_id=cls.vendor_id
+            porduct_id=cls.product_id, vendor_id=cls.vendor_id
         ).get_devices()
 
         return [dev.instance_id for dev in devs]
@@ -191,7 +190,7 @@ class MiniCircuitsHIDMixin(Instrument):
     def __init__(
         self,
         name: str,
-        instance_id: Optional[str] = None,
+        instance_id: str | None = None,
         timeout: float = 2,
         **kwargs: "Unpack[InstrumentBaseKWArgs]",
     ):
@@ -235,7 +234,7 @@ class MiniCircuitsHIDMixin(Instrument):
         self._device = devs[0]
         self._device.open()
 
-        self._data_buffer: Optional[bytes] = None
+        self._data_buffer: bytes | None = None
         self._device.set_raw_data_handler(self._handler)
 
         self._timeout = timeout
@@ -246,7 +245,7 @@ class MiniCircuitsHIDMixin(Instrument):
     def _handler(self, data: bytes) -> None:
         self._data_buffer = data
 
-    def _get_data_buffer(self) -> Optional[bytes]:
+    def _get_data_buffer(self) -> bytes | None:
         data = self._data_buffer
         self._data_buffer = None
         return data
@@ -338,12 +337,12 @@ class MiniCircuitsHIDMixin(Instrument):
             f"BB{str_len}s{pad_len}x",
             self._usb_endpoint,
             self._sending_scpi_cmds_code,
-            cmd.encode("ascii")
+            cmd.encode("ascii"),
         )
 
         return packed_data
 
-    def _unpack_string(self, response: bytes) ->str:
+    def _unpack_string(self, response: bytes) -> str:
         """
         Unpack data received from the instrument into a string
 
@@ -352,9 +351,6 @@ class MiniCircuitsHIDMixin(Instrument):
         Args:
             response: a raw byte sequence response from the instrument
         """
-        _, _, reply_data = struct.unpack(
-            f"BB{self.packet_size - 1}s",
-            bytes(response)
-        )
+        _, _, reply_data = struct.unpack(f"BB{self.packet_size - 1}s", bytes(response))
         span = reply_data.find(self._end_of_message)
         return reply_data[:span].decode("ascii")

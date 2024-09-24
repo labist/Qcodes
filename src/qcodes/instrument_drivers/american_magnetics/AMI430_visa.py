@@ -5,14 +5,14 @@ import numbers
 import time
 import warnings
 from collections import defaultdict
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from contextlib import ExitStack
 from functools import partial
-from typing import TYPE_CHECKING, Callable, ClassVar, TypeVar, cast
+from typing import TYPE_CHECKING, ClassVar, Concatenate, TypeVar, cast
 
 import numpy as np
 from pyvisa import VisaIOError
-from typing_extensions import Concatenate, ParamSpec
+from typing_extensions import ParamSpec, deprecated
 
 from qcodes.instrument import (
     Instrument,
@@ -56,7 +56,7 @@ class AMI430SwitchHeater(InstrumentChannel):
             def check_enabled_decorator(
                 self: S, *args: P.args, **kwargs: P.kwargs
             ) -> T:
-                if not self.check_enabled():
+                if not self.enabled():
                     raise AMI430Exception("Switch not enabled")
                 return f(self, *args, **kwargs)
 
@@ -71,19 +71,19 @@ class AMI430SwitchHeater(InstrumentChannel):
         self.enabled: Parameter = self.add_parameter(
             "enabled",
             label="Switch Heater Enabled",
-            get_cmd=self.check_enabled,
-            set_cmd=lambda x: (self.enable() if x else self.disable()),
+            get_cmd=self._check_enabled,
+            set_cmd=lambda x: (self._enable() if x else self._disable()),
             vals=Bool(),
         )
         """Parameter enabled"""
         self.state: Parameter = self.add_parameter(
             "state",
             label="Switch Heater On",
-            get_cmd=self.check_state,
-            set_cmd=lambda x: (self.on() if x else self.off()),
+            get_cmd=self._check_state,
+            set_cmd=lambda x: (self._on() if x else self._off()),
             vals=Bool(),
         )
-        """Parameter state"""
+        """Parameter state. Always False is the switch heater is not enabled"""
         self.in_persistent_mode: Parameter = self.add_parameter(
             "in_persistent_mode",
             label="Persistent Mode",
@@ -124,39 +124,80 @@ class AMI430SwitchHeater(InstrumentChannel):
         )
         """Parameter cool_time"""
 
-    def disable(self) -> None:
+    def _disable(self) -> None:
         """Turn measurement off"""
         self.write("CONF:PS 0")
         self._enabled = False
 
-    def enable(self) -> None:
+    def _enable(self) -> None:
         """Turn measurement on"""
-        self.write("CONF:PS 1")
+        self.write(cmd="CONF:PS 1")
         self._enabled = True
 
-    def check_enabled(self) -> bool:
+    @deprecated(
+        "Use enabled parameter to enable/disable the switch heater.",
+        category=QCoDeSDeprecationWarning,
+    )
+    def disable(self) -> None:
+        self._disable()
+
+    @deprecated(
+        "Use enabled parameter to enable/disable the switch heater.",
+        category=QCoDeSDeprecationWarning,
+    )
+    def enable(self) -> None:
+        self._enable()
+
+    def _check_enabled(self) -> bool:
         return bool(int(self.ask("PS:INST?").strip()))
 
+    @deprecated(
+        "Use enabled parameter to inspect switch heater status.",
+        category=QCoDeSDeprecationWarning,
+    )
+    def check_enabled(self) -> bool:
+        return self._check_enabled()
+
     @_Decorators.check_enabled
-    def on(self) -> None:
+    def _on(self) -> None:
         self.write("PS 1")
         while self._parent.ramping_state() == "heating switch":
             self._parent._sleep(0.5)
 
+    @deprecated(
+        "Use state parameter to turn on the switch heater.",
+        category=QCoDeSDeprecationWarning,
+    )
+    def on(self) -> None:
+        self._on()
+
     @_Decorators.check_enabled
-    def off(self) -> None:
+    def _off(self) -> None:
         self.write("PS 0")
         while self._parent.ramping_state() == "cooling switch":
             self._parent._sleep(0.5)
 
-    @_Decorators.check_enabled
-    def check_state(self) -> bool:
+    @deprecated(
+        "Use state parameter to turn off the switch heater.",
+        category=QCoDeSDeprecationWarning,
+    )
+    def off(self) -> None:
+        self._off()
+
+    def _check_state(self) -> bool:
+        if self.enabled() is False:
+            return False
         return bool(int(self.ask("PS?").strip()))
+
+    @deprecated(
+        "Use state parameter to inspect if switch heater is on.",
+        category=QCoDeSDeprecationWarning,
+    )
+    def check_state(self) -> bool:
+        return self._check_state()
 
 
 class AMIModel430(VisaInstrument):
-
-
     _SHORT_UNITS: ClassVar[dict[str, str]] = {
         "seconds": "s",
         "minutes": "min",
@@ -457,7 +498,6 @@ class AMIModel430(VisaInstrument):
             raise AMI430Exception(msg.format(value, exit_state))
 
     def wait_while_ramping(self) -> str:
-
         while self.ramping_state() == "ramping":
             self._sleep(self.ramping_state_check_interval())
 
@@ -564,7 +604,6 @@ class AMIModel430(VisaInstrument):
         self.coil_constant()
 
     def write_raw(self, cmd: str) -> None:
-
         try:
             super().write_raw(cmd)
         except VisaIOError as err:
@@ -582,7 +621,6 @@ class AMIModel430(VisaInstrument):
                 raise err
 
     def ask_raw(self, cmd: str) -> str:
-
         try:
             result = super().ask_raw(cmd)
         except VisaIOError as err:
@@ -601,6 +639,10 @@ class AMIModel430(VisaInstrument):
         return result
 
 
+@deprecated(
+    "Use qcodes.instrument_drivers.american_magnetics.AMIModel430 instead.",
+    category=QCoDeSDeprecationWarning,
+)
 class AMI430(AMIModel430):
     pass
 
@@ -1047,7 +1089,6 @@ class AMIModel4303D(Instrument):
 
         # Check if the individual instruments are ready
         for name, value in zip(["x", "y", "z"], values):
-
             instrument = getattr(self, f"_instrument_{name}")
             if instrument.ramping_state() == "ramping":
                 msg = "_set_fields aborted; magnet {} is already ramping"
@@ -1127,7 +1168,6 @@ class AMIModel4303D(Instrument):
             # This will ensure that we are always in a safe region as
             # far as the quenching of the magnets is concerned
             for name, value in zip(["x", "y", "z"], values):
-
                 instrument = getattr(self, f"_instrument_{name}")
                 current_actual = instrument.field()
 
@@ -1235,7 +1275,6 @@ class AMIModel4303D(Instrument):
         return return_value
 
     def _get_setpoints(self, names: Sequence[str]) -> float | list[float]:
-
         measured_values = self._set_point.get_components(*names)
 
         # Convert angles from radians to degrees
@@ -1253,7 +1292,6 @@ class AMIModel4303D(Instrument):
         return return_value
 
     def _set_setpoints(self, names: Sequence[str], values: Sequence[float]) -> None:
-
         kwargs = dict(zip(names, np.atleast_1d(values)))
 
         set_point = FieldVector()
@@ -1271,5 +1309,9 @@ class AMIModel4303D(Instrument):
         self._set_point = set_point
 
 
+@deprecated(
+    "Use qcodes.instrument_drivers.american_magnetics.AMIModel4303D instead.",
+    category=QCoDeSDeprecationWarning,
+)
 class AMI430_3D(AMIModel4303D):
     pass

@@ -2,7 +2,7 @@ import gc
 import logging
 import re
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import pytest
 import pyvisa
@@ -18,13 +18,16 @@ from qcodes.validators import Numbers
 class MockVisa(VisaInstrument):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.add_parameter('state',
-                           get_cmd='STAT?', get_parser=float,
-                           set_cmd='STAT:{:.3f}',
-                           vals=Numbers(-20, 20))
+        self.add_parameter(
+            "state",
+            get_cmd="STAT?",
+            get_parser=float,
+            set_cmd="STAT:{:.3f}",
+            vals=Numbers(-20, 20),
+        )
 
     def _open_resource(
-        self, address: str, visalib: Optional[str]
+        self, address: str, visalib: str | None
     ) -> tuple[pyvisa.resources.MessageBasedResource, str, pyvisa.ResourceManager]:
         if visalib is None:
             visalib = "MockVisaLib"
@@ -42,6 +45,7 @@ class MockVisaHandle(pyvisa.resources.MessageBasedResource):
     - any ask command returns the state
     - a state > 10 throws an error
     """
+
     def __init__(self):
         self.state = 0
         self.closed = False
@@ -57,8 +61,8 @@ class MockVisaHandle(pyvisa.resources.MessageBasedResource):
     def write(
         self,
         message: str,
-        termination: Optional[str] = None,
-        encoding: Optional[str] = None,
+        termination: str | None = None,
+        encoding: str | None = None,
     ) -> int:
         if self.closed:
             raise RuntimeError("Trying to write to a closed instrument")
@@ -66,7 +70,7 @@ class MockVisaHandle(pyvisa.resources.MessageBasedResource):
         self.state = num
 
         if num < 0:
-            raise ValueError('be more positive!')
+            raise ValueError("be more positive!")
 
         if num == 0:
             raise pyvisa.VisaIOError(pyvisa.constants.VI_ERROR_TMO)
@@ -80,7 +84,7 @@ class MockVisaHandle(pyvisa.resources.MessageBasedResource):
             raise ValueError("I'm out of fingers")
         return self.state
 
-    def query(self, message: str, delay: Optional[float] = None) -> str:
+    def query(self, message: str, delay: float | None = None) -> str:
         if self.state > 10:
             raise ValueError("I'm out of fingers")
         return str(self.state)
@@ -95,30 +99,23 @@ class MockVisaHandle(pyvisa.resources.MessageBasedResource):
         pass
 
 
- # error args for set(-10)
+# error args for set(-10)
 args1 = [
-    'be more positive!',
+    "be more positive!",
     "writing 'STAT:-10.000' to <MockVisa: Joe>",
-    'setting Joe_state to -10'
+    "setting Joe_state to -10",
 ]
 
 # error args for set(0)
-args2 = [
-    "writing 'STAT:0.000' to <MockVisa: Joe>",
-    'setting Joe_state to 0'
-]
+args2 = ["writing 'STAT:0.000' to <MockVisa: Joe>", "setting Joe_state to 0"]
 
 # error args for get -> 15
-args3 = [
-    "I'm out of fingers",
-    "asking 'STAT?' to <MockVisa: Joe>",
-    'getting Joe_state'
-]
+args3 = ["I'm out of fingers", "asking 'STAT?' to <MockVisa: Joe>", "getting Joe_state"]
 
 
-@pytest.fixture(name='mock_visa')
+@pytest.fixture(name="mock_visa")
 def _make_mock_visa():
-    mv = MockVisa('Joe', 'none_address')
+    mv = MockVisa("Joe", "none_address")
     try:
         yield mv
     finally:
@@ -157,7 +154,6 @@ def test_visa_gc_closes_connection(caplog) -> None:
 
 
 def test_ask_write_local(mock_visa) -> None:
-
     # test normal ask and write behavior
     mock_visa.state.set(2)
     assert mock_visa.state.get() == 2
@@ -185,7 +181,6 @@ def test_ask_write_local(mock_visa) -> None:
 
 
 def test_visa_backend(mocker, request: FixtureRequest) -> None:
-
     rm_mock = mocker.patch("qcodes.instrument.visa.pyvisa.ResourceManager")
 
     address_opened = [None]
@@ -200,18 +195,18 @@ def test_visa_backend(mocker, request: FixtureRequest) -> None:
 
     rm_mock.return_value = MockRM()
 
-    inst1 = MockBackendVisaInstrument('name', address='None')
+    inst1 = MockBackendVisaInstrument("name", address="None")
     request.addfinalizer(inst1.close)
     assert rm_mock.call_count == 1
     assert rm_mock.call_args == ((),)
-    assert address_opened[0] == 'None'
+    assert address_opened[0] == "None"
     inst1.close()
 
-    inst2 = MockBackendVisaInstrument('name2', address='ASRL2')
+    inst2 = MockBackendVisaInstrument("name2", address="ASRL2")
     request.addfinalizer(inst2.close)
     assert rm_mock.call_count == 2
     assert rm_mock.call_args == ((),)
-    assert address_opened[0] == 'ASRL2'
+    assert address_opened[0] == "ASRL2"
     inst2.close()
 
     inst3 = MockBackendVisaInstrument("name3", address="ASRL3", visalib="@py")
@@ -223,14 +218,13 @@ def test_visa_backend(mocker, request: FixtureRequest) -> None:
 
 
 def test_visa_instr_metadata(request: FixtureRequest) -> None:
-    metadatadict = {'foo': 'bar'}
-    mv = MockVisa('Joe', 'none_adress', metadata=metadatadict)
+    metadatadict = {"foo": "bar"}
+    mv = MockVisa("Joe", "none_adress", metadata=metadatadict)
     request.addfinalizer(mv.close)
     assert mv.metadata == metadatadict
 
 
 def test_both_visahandle_and_pyvisa_sim_file_raises() -> None:
-
     with pytest.raises(
         RuntimeError,
         match=re.escape(

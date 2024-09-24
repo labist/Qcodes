@@ -4,11 +4,9 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Literal,
-    Optional,
     SupportsBytes,
     SupportsIndex,
     TextIO,
-    Union,
     cast,
 )
 
@@ -91,6 +89,7 @@ class LakeshoreModel325Status(IntFlag):
     """
     IntFlag that defines status codes for Lakeshore Model 325
     """
+
     sensor_units_overrang = 128
     sensor_units_zero = 64
     temp_overrange = 32
@@ -103,8 +102,8 @@ class LakeshoreModel325Status(IntFlag):
     # is merged
     @classmethod
     def from_bytes(
-        cls: "type[Self]",
-        bytes: "Union[Iterable[SupportsIndex], SupportsBytes, Buffer]",
+        cls,
+        bytes: "Iterable[SupportsIndex] | SupportsBytes | Buffer",
         byteorder: Literal["big", "little"] = "big",
         *,
         signed: bool = False,
@@ -270,7 +269,7 @@ class LakeshoreModel325Curve(InstrumentChannel):
         return sensor_unit
 
     def set_data(
-        self, data_dict: dict[Any, Any], sensor_unit: Optional[str] = None
+        self, data_dict: dict[Any, Any], sensor_unit: str | None = None
     ) -> None:
         """
         Set the curve data according to the values found the the dictionary.
@@ -290,7 +289,6 @@ class LakeshoreModel325Curve(InstrumentChannel):
         for value_index, (temperature_value, sensor_value) in enumerate(
             zip(temperature_values, sensor_values)
         ):
-
             cmd_str = (
                 f"CRVPT {self._index}, {value_index + 1}, "
                 f"{sensor_value:3.3f}, {temperature_value:3.3f}"

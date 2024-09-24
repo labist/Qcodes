@@ -1,5 +1,5 @@
 import os
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 # QCoDeS imports
 from qcodes.instrument_drivers.Minicircuits.Base_SPDT import (
@@ -39,24 +39,20 @@ class MiniCircuitsUsbSPDT(MiniCircuitsSPDTBase):
     def __init__(
         self,
         name: str,
-        driver_path: Optional[str] = None,
-        serial_number: Optional[str] = None,
+        driver_path: str | None = None,
+        serial_number: str | None = None,
         **kwargs: "Unpack[InstrumentBaseKWArgs]",
     ):
         """
         Mini-Circuits SPDT RF switch
 
         Args:
-                name: the name of the instrument
-                driver_path: path to the dll
-                serial_number: the serial number of the device
-                   (printed on the sticker on the back side, without s/n)
-                kwargs: kwargs to be passed to Instrument class.
+            name: the name of the instrument
+            driver_path: path to the dll
+            serial_number: the serial number of the device
+                (printed on the sticker on the back side, without s/n)
+            kwargs: kwargs to be passed to Instrument class.
         """
-        # we are eventually overwriting this but since it's called
-        # in __getattr__ of `SPDT_Base` it's important that it's
-        # always set to something to avoid infinite recursion
-        self._deprecated_attributes = {}
         # import .net exception so we can catch it below
         # we keep this import local so that the module can be imported
         # without a working .net install
@@ -98,7 +94,7 @@ class MiniCircuitsUsbSPDT(MiniCircuitsSPDTBase):
         self.connect_message()
         self.add_channels()
 
-    def get_idn(self) -> dict[str, Optional[str]]:
+    def get_idn(self) -> dict[str, str | None]:
         # the arguments in those functions is the serial number or none if
         # there is only one switch.
         fw = self.switch.GetFirmware()

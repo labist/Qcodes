@@ -1,6 +1,6 @@
 import time
 from bisect import bisect
-from typing import TYPE_CHECKING, Any, ClassVar, Optional
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 from typing_extensions import deprecated
@@ -85,12 +85,13 @@ class LakeshoreBaseOutput(InstrumentChannel):
             parameter_class=GroupParameter,
         )
         """Specifies whether the output remains on or shuts off after power cycle."""
-        self.output_group = Group([self.mode, self.input_channel,
-                                   self.powerup_enable],
-                                  set_cmd=f'OUTMODE {output_index}, {{mode}}, '
-                                          f'{{input_channel}}, '
-                                          f'{{powerup_enable}}',
-                                  get_cmd=f'OUTMODE? {output_index}')
+        self.output_group = Group(
+            [self.mode, self.input_channel, self.powerup_enable],
+            set_cmd=f"OUTMODE {output_index}, {{mode}}, "
+            f"{{input_channel}}, "
+            f"{{powerup_enable}}",
+            get_cmd=f"OUTMODE? {output_index}",
+        )
 
         # Parameters for Closed Loop PID Parameter Command
         if self._has_pid:
@@ -121,10 +122,67 @@ class LakeshoreBaseOutput(InstrumentChannel):
                 parameter_class=GroupParameter,
             )
             """The value for closed control loop Derivative (rate)"""
-            self.pid_group = Group([self.P, self.I, self.D],
-                                   set_cmd=f'PID {output_index}, '
-                                           f'{{P}}, {{I}}, {{D}}',
-                                   get_cmd=f'PID? {output_index}')
+            self.pid_group = Group(
+                [self.P, self.I, self.D],
+                set_cmd=f"PID {output_index},{{P}},{{I}},{{D}}",
+                get_cmd=f"PID? {output_index}",
+            )
+
+        self.output_type: GroupParameter = self.add_parameter(
+            name="output_type",
+            docstring="Output type (Output 2 only): 0=Current, 1=Voltage",
+            val_mapping=(
+                {"current": 0, "voltage": 1} if output_index == 1 else {"current": 0}
+            ),
+            parameter_class=GroupParameter,
+        )
+        """Output type (Output 2 only): 0=Current, 1=Voltage"""
+
+        self.output_heater_resistance: GroupParameter = self.add_parameter(
+            name="output_heater_resistance",
+            docstring="Heater Resistance Setting: 25/50ohm",
+            val_mapping={"25ohm": 1, "50ohm": 2},
+            parameter_class=GroupParameter,
+        )
+        """Heater Resistance Setting: 25/50ohm"""
+
+        self.output_max_current: GroupParameter = self.add_parameter(
+            name="output_max_current",
+            docstring="Specifies the maximum heater output current: User Specified, 0.707 A, 1 A, 1.141 A, 1.732",
+            val_mapping={"user": 0, "0.707A": 1, "1A": 2, "1.141A": 3, "1.732A": 4},
+            parameter_class=GroupParameter,
+        )
+        """Specifies the maximum heater output current: User Specified, 0.707 A, 1 A, 1.141 A, 1.732"""
+
+        self.output_max_user_current: GroupParameter = self.add_parameter(
+            name="output_max_user_current",
+            docstring="Specifies the maximum heater output current if max current is set to User Specified.",
+            vals=vals.Numbers(0, 1.732),
+            unit="A",
+            get_parser=float,
+            parameter_class=GroupParameter,
+        )
+        """Specifies the maximum heater output current if max current is set to User Specified."""
+
+        self.output_display: GroupParameter = self.add_parameter(
+            name="output_display",
+            docstring="Specifies whether the heater output displays in current or power (current mode only)",
+            val_mapping={"current": 1, "power": 2},
+            parameter_class=GroupParameter,
+        )
+        """Specifies whether the heater output displays in current or power (current mode only)"""
+
+        self.heater_group = Group(
+            [
+                self.output_type,
+                self.output_heater_resistance,
+                self.output_max_current,
+                self.output_max_user_current,
+                self.output_display,
+            ],
+            set_cmd=f"HTRSET {output_index},{{output_type}},{{output_heater_resistance}},{{output_max_current}},{{output_max_user_current}},{{output_display}}",
+            get_cmd=f"HTRSET? {output_index}",
+        )
 
         self.output_range: Parameter = self.add_parameter(
             "output_range",
@@ -181,6 +239,53 @@ class LakeshoreBaseOutput(InstrumentChannel):
         The value of the setpoint in the preferred units of the control loop sensor
         (which is set via `input_channel` parameter)
         """
+
+        self.setpoint_ramp_enabled: GroupParameter = self.add_parameter(
+            "setpoint_ramp_enabled",
+            label="Setpoint ramping enabled",
+            docstring="Specifies whether setpoint ramping is 0 = Off or 1 = On",
+            val_mapping={False: 0, True: 1},
+            parameter_class=GroupParameter,
+        )
+        """
+        Specifies whether setpoint ramping is 0 = Off or 1 = On
+        """
+
+        self.setpoint_ramp_rate: GroupParameter = self.add_parameter(
+            "setpoint_ramp_rate",
+            label="Setpoint ramping rate",
+            unit="K/min",
+            get_parser=float,
+            docstring="Specifies setpoint ramp rate in kelvin per minute from"
+            "0.1 to 100. The rate is always positive, but will respond to"
+            "ramps up or down. A rate of 0 is interpreted as infinite, and"
+            "will therefore respond as if setpoint ramping were off",
+            vals=vals.Numbers(0, 100),
+            parameter_class=GroupParameter,
+        )
+        """
+        Specifies setpoint ramp rate in kelvin per minute from
+        0.1 to 100. The rate is always positive, but will respond to
+        ramps up or down. A rate of 0 is interpreted as infinite, and
+        will therefore respond as if setpoint ramping were off
+        """
+
+        self.setpoint_ramp_group = Group(
+            [
+                self.setpoint_ramp_enabled,
+                self.setpoint_ramp_rate,
+            ],
+            set_cmd=f"RAMP {output_index},{{setpoint_ramping_enabled}},{{setpoint_ramping_rate}}",
+            get_cmd=f"RAMP? {output_index}",
+        )
+
+        self.setpoint_ramp_status: Parameter = self.add_parameter(
+            "setpoint_ramp_status",
+            label="Setpoint is ramping",
+            docstring="0 = Not ramping, 1 = Setpoint is ramping",
+            val_mapping={True: 1, False: 0},
+            get_cmd=f"RAMPST? {output_index}",
+        )
 
         # Additional non-Visa parameters
 
@@ -289,11 +394,13 @@ class LakeshoreBaseOutput(InstrumentChannel):
             from the `output_range` parameter itself
         """
         if self.range_limits.get_latest() is None:
-            raise RuntimeError('Error when calling set_range_from_temperature: '
-                               'You must specify the output range limits '
-                               'before automatically setting the range '
-                               '(e.g. inst.range_limits([0.021, 0.1, 0.2, '
-                               '1.1, 2, 4, 8]))')
+            raise RuntimeError(
+                "Error when calling set_range_from_temperature: "
+                "You must specify the output range limits "
+                "before automatically setting the range "
+                "(e.g. inst.range_limits([0.021, 0.1, 0.2, "
+                "1.1, 2, 4, 8]))"
+            )
         range_limits = self.range_limits.get_latest()
         i = bisect(range_limits, temperature)
         # if temperature is larger than the highest range, then bisect returns
@@ -302,9 +409,10 @@ class LakeshoreBaseOutput(InstrumentChannel):
         i = min(i, len(range_limits) - 1)
         # there is a `+1` because `self.RANGES` includes `'off'` as the first
         # value.
-        orange = self.INVERSE_RANGES[i+1] # this is `output range` not the fruit
-        self.log.debug(f'setting output range from temperature '
-                       f'({temperature} K) to {orange}.')
+        orange = self.INVERSE_RANGES[i + 1]  # this is `output range` not the fruit
+        self.log.debug(
+            f"setting output range from temperature ({temperature} K) to {orange}."
+        )
         self.output_range(orange)
         return self.output_range()
 
@@ -323,10 +431,10 @@ class LakeshoreBaseOutput(InstrumentChannel):
         self.setpoint(temperature)
 
     def wait_until_set_point_reached(
-            self,
-            wait_cycle_time: Optional[float] = None,
-            wait_tolerance: Optional[float] = None,
-            wait_equilibration_time: Optional[float] = None
+        self,
+        wait_cycle_time: float | None = None,
+        wait_tolerance: float | None = None,
+        wait_equilibration_time: float | None = None,
     ) -> None:
         """
         This function runs a loop that monitors the value of the heater's
@@ -356,25 +464,24 @@ class LakeshoreBaseOutput(InstrumentChannel):
         wait_cycle_time = wait_cycle_time or self.wait_cycle_time.get_latest()
         assert wait_cycle_time is not None
         tolerance = wait_tolerance or self.wait_tolerance.get_latest()
-        equilibration_time = (wait_equilibration_time or
-                                   self.wait_equilibration_time.get_latest())
+        equilibration_time = (
+            wait_equilibration_time or self.wait_equilibration_time.get_latest()
+        )
 
         active_channel_id = self.input_channel()
-        active_channel_name_on_instrument = (
-            self.root_instrument
-                .input_channel_parameter_values_to_channel_name_on_instrument[
-                active_channel_id
-            ]
-        )
+        active_channel_name_on_instrument = self.root_instrument.input_channel_parameter_values_to_channel_name_on_instrument[
+            active_channel_id
+        ]
         active_channel = getattr(
-            self.root_instrument,
-            active_channel_name_on_instrument
+            self.root_instrument, active_channel_name_on_instrument
         )
 
-        if active_channel.units() != 'kelvin':
-            raise ValueError(f"Waiting until the setpoint is reached requires "
-                             f"channel's {active_channel._channel!r} units to "
-                             f"be set to 'kelvin'.")
+        if active_channel.units() != "kelvin":
+            raise ValueError(
+                f"Waiting until the setpoint is reached requires "
+                f"channel's {active_channel._channel!r} units to "
+                f"be set to 'kelvin'."
+            )
 
         t_setpoint = self.setpoint()
 
@@ -392,6 +499,7 @@ class LakeshoreBaseOutput(InstrumentChannel):
                 time_enter_tolerance_zone = time_now
 
             time.sleep(wait_cycle_time)
+
 
 @deprecated(
     "Base class renamed to LakeshoreBaseOutput", category=QCoDeSDeprecationWarning
@@ -495,8 +603,9 @@ class LakeshoreBaseSensorChannel(InstrumentChannel):
                 string (e.g. "32"), as returned by the corresponding
                 instrument command
         """
-        codes = self._get_sum_terms(list(self.SENSOR_STATUSES.keys()),
-                                    int(sum_of_codes))
+        codes = self._get_sum_terms(
+            list(self.SENSOR_STATUSES.keys()), int(sum_of_codes)
+        )
         return ", ".join(self.SENSOR_STATUSES[k] for k in codes)
 
     @staticmethod
@@ -529,7 +638,8 @@ class LakeshoreBaseSensorChannel(InstrumentChannel):
         # will obviously will not make it to the returned list; and also get
         # rid of '0' as it will make the loop below infinite
         terms_left = np.array(
-            [term for term in terms_left if term <= number and term != 0])
+            [term for term in terms_left if term <= number and term != 0]
+        )
 
         # Handle the special case of number being 0
         if number == 0:
@@ -547,6 +657,7 @@ class LakeshoreBaseSensorChannel(InstrumentChannel):
             terms_left = terms_left[terms_left <= number]
 
         return terms_in_number
+
 
 @deprecated(
     "Base class renamed to LakeshoreBaseSensorChannel",
@@ -571,6 +682,7 @@ class LakeshoreBase(VisaInstrument):
     instances (subclasses of those) in your `LakeshoreBase`'s subclass
     constructor via `add_submodule` method.
     """
+
     # Redefine this in the model-specific class in case you want to use a
     # different class for sensor channels
     CHANNEL_CLASS = LakeshoreBaseSensorChannel
@@ -602,14 +714,13 @@ class LakeshoreBase(VisaInstrument):
         # Note that `snapshotable` is set to false in order to avoid duplicate
         # snapshotting which otherwise will happen because each channel is also
         # added as a submodule to the instrument.
-        channels = ChannelList(self,
-                               "TempSensors",
-                               self.CHANNEL_CLASS,
-                               snapshotable=False)
-        for name, command in self.channel_name_command.items():
-            channel = self.CHANNEL_CLASS(self, name, command)
+        channels = ChannelList(
+            self, "TempSensors", self.CHANNEL_CLASS, snapshotable=False
+        )
+        for channel_name, command in self.channel_name_command.items():
+            channel = self.CHANNEL_CLASS(self, channel_name, command)
             channels.append(channel)
-            self.add_submodule(name, channel)
+            self.add_submodule(channel_name, channel)
         self.add_submodule("channels", channels.to_channel_tuple())
 
         # on Model335 we need to change serial port settings

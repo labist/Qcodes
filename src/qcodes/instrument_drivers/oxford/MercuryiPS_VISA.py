@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import time
 from functools import partial
-from typing import TYPE_CHECKING, Callable, cast
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -18,12 +18,14 @@ from qcodes.instrument import (
 from qcodes.math_utils import FieldVector
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from typing_extensions import Unpack
 
     from qcodes.parameters import Parameter
 
 log = logging.getLogger(__name__)
-visalog = logging.getLogger('qcodes.instrument.visa')
+visalog = logging.getLogger("qcodes.instrument.visa")
 
 
 # Note very universal solution but should work for our setups
@@ -39,7 +41,7 @@ def _response_preparser(bare_resp: str) -> str:
     """
     Pre-parse response from the instrument
     """
-    return bare_resp.replace(':', '')
+    return bare_resp.replace(":", "")
 
 
 def _signal_parser(our_scaling: float, response: str) -> float:
@@ -54,10 +56,9 @@ def _signal_parser(our_scaling: float, response: str) -> float:
 
     # there might be a scale before the unit. We only want to deal in SI
     # units, so we translate the scale
-    scale_to_factor = {'n': 1e-9, 'u': 1e-6, 'm': 1e-3,
-                       'k': 1e3, 'M': 1e6}
+    scale_to_factor = {"n": 1e-9, "u": 1e-6, "m": 1e-3, "k": 1e3, "M": 1e6}
 
-    numchars = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '-']
+    numchars = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "-"]
 
     response = _response_preparser(response)
     digits = "".join(d for d in response if d in numchars)
@@ -69,7 +70,7 @@ def _signal_parser(our_scaling: float, response: str) -> float:
     else:
         their_scaling = 1
 
-    return float(digits)*their_scaling*our_scaling
+    return float(digits) * their_scaling * our_scaling
 
 
 class OxfordMercuryWorkerPS(InstrumentChannel):
@@ -92,9 +93,11 @@ class OxfordMercuryWorkerPS(InstrumentChannel):
                 'GRPX'
             **kwargs: Forwarded to base class.
         """
-        if ':' in UID:
-            raise ValueError('Invalid UID. Must be axis group name or device '
-                             'name, e.g. "GRPX" or "PSU.M1"')
+        if ":" in UID:
+            raise ValueError(
+                "Invalid UID. Must be axis group name or device "
+                'name, e.g. "GRPX" or "PSU.M1"'
+            )
 
         super().__init__(parent, name, **kwargs)
         self.uid = UID
@@ -223,19 +226,21 @@ class OxfordMercuryWorkerPS(InstrumentChannel):
         Unconditionally ramp this PS to its target
         """
         status = self.ramp_status()
-        if status == 'CLAMP':
-            self.ramp_status('HOLD')
-        self.ramp_status('TO SET')
+        if status == "CLAMP":
+            self.ramp_status("HOLD")
+        self.ramp_status("TO SET")
 
     def _ramp_status_setter(self, cmd: str) -> None:
         status_now = self.ramp_status()
-        if status_now == 'CLAMP' and cmd == 'RTOS':
-            raise ValueError(f'Error in ramping unit {self.uid}: '
-                             'Can not ramp to target value; power supply is '
-                             'clamped. Unclamp first by setting ramp status '
-                             'to HOLD.')
+        if status_now == "CLAMP" and cmd == "RTOS":
+            raise ValueError(
+                f"Error in ramping unit {self.uid}: "
+                "Can not ramp to target value; power supply is "
+                "clamped. Unclamp first by setting ramp status "
+                "to HOLD."
+            )
         else:
-            partial(self._param_setter, 'ACTN')(cmd)
+            partial(self._param_setter, "ACTN")(cmd)
 
     def _param_getter(self, get_cmd: str) -> str:
         """
@@ -305,10 +310,12 @@ class OxfordMercuryiPS(VisaInstrument):
             **kwargs: kwargs are forwarded to base class.
         """
 
-        if field_limits is not None and not(callable(field_limits)):
-            raise ValueError('Got wrong type of field_limits. Must be a '
-                             'function from (x, y, z) -> Bool. Received '
-                             f'{type(field_limits)} instead.')
+        if field_limits is not None and not (callable(field_limits)):
+            raise ValueError(
+                "Got wrong type of field_limits. Must be a "
+                "function from (x, y, z) -> Bool. Received "
+                f"{type(field_limits)} instead."
+            )
 
         pyvisa_sim_file = kwargs.get("pyvisa_sim_file", None)
         # ensure that a socket is used unless we are in simulation mode
@@ -323,20 +330,19 @@ class OxfordMercuryiPS(VisaInstrument):
             )
 
         super().__init__(name, address, **kwargs)
-        self.firmware = self.IDN()['firmware']
+        self.firmware = self.IDN()["firmware"]
 
         # TODO: Query instrument to ensure which PSUs are actually present
-        for grp in ['GRPX', 'GRPY', 'GRPZ']:
+        for grp in ["GRPX", "GRPY", "GRPZ"]:
             psu_name = grp
             psu = OxfordMercuryWorkerPS(self, psu_name, grp)
             self.add_submodule(psu_name, psu)
 
-        self._field_limits = (lambda x, y, z: field_limits(x, y, z)\
-                                   if field_limits else lambda x, y, z: True)
+        self._field_limits = field_limits if field_limits else lambda x, y, z: True
 
-        self._target_vector = FieldVector(x=self.GRPX.field(),
-                                          y=self.GRPY.field(),
-                                          z=self.GRPZ.field())
+        self._target_vector = FieldVector(
+            x=self.GRPX.field(), y=self.GRPY.field(), z=self.GRPZ.field()
+        )
 
         for coord in ('x', 'y', 'z'):
             self.add_parameter(name=f'{coord}_only',
@@ -354,36 +360,43 @@ class OxfordMercuryiPS(VisaInstrument):
                     set_cmd=partial(self._simple_blk, coord))
 
         for coord, unit in zip(
-                ['x', 'y', 'z', 'r', 'theta',   'phi',     'rho'],
-                ['T', 'T', 'T', 'T', 'degrees', 'degrees', 'T']):
-            self.add_parameter(name=f'{coord}_target',
-                               label=f'{coord.upper()} target field',
-                               unit=unit,
-                               get_cmd=partial(self._get_component, coord),
-                               set_cmd=partial(self._set_target, coord))
+            ["x", "y", "z", "r", "theta", "phi", "rho"],
+            ["T", "T", "T", "T", "degrees", "degrees", "T"],
+        ):
+            self.add_parameter(
+                name=f"{coord}_target",
+                label=f"{coord.upper()} target field",
+                unit=unit,
+                get_cmd=partial(self._get_component, coord),
+                set_cmd=partial(self._set_target, coord),
+            )
 
-            self.add_parameter(name=f'{coord}_measured',
-                               label=f'{coord.upper()} measured field',
-                               unit=unit,
-                               get_cmd=partial(self._get_measured, [coord]))
+            self.add_parameter(
+                name=f"{coord}_measured",
+                label=f"{coord.upper()} measured field",
+                unit=unit,
+                get_cmd=partial(self._get_measured, [coord]),
+            )
 
-            self.add_parameter(name=f'{coord}_ramp',
-                               label=f'{coord.upper()} ramp field',
-                               unit=unit,
-                               docstring='A safe ramp for each coordinate',
-                               get_cmd=partial(self._get_component, coord),
-                               set_cmd=partial(self._set_target_and_ramp,
-                                               coord, 'safe'))
+            self.add_parameter(
+                name=f"{coord}_ramp",
+                label=f"{coord.upper()} ramp field",
+                unit=unit,
+                docstring="A safe ramp for each coordinate",
+                get_cmd=partial(self._get_component, coord),
+                set_cmd=partial(self._set_target_and_ramp, coord, "safe"),
+            )
 
-            if coord in ['r', 'theta', 'phi', 'rho']:
-                self.add_parameter(name=f'{coord}_simulramp',
-                                   label=f'{coord.upper()} ramp field',
-                                   unit=unit,
-                                   docstring='A simultaneous blocking ramp for'
-                                             ' a combined coordinate',
-                                   get_cmd=partial(self._get_component, coord),
-                                   set_cmd=partial(self._set_target_and_ramp,
-                                                   coord, 'simul_block'))
+            if coord in ["r", "theta", "phi", "rho"]:
+                self.add_parameter(
+                    name=f"{coord}_simulramp",
+                    label=f"{coord.upper()} ramp field",
+                    unit=unit,
+                    docstring="A simultaneous blocking ramp for"
+                    " a combined coordinate",
+                    get_cmd=partial(self._get_component, coord),
+                    set_cmd=partial(self._set_target_and_ramp, coord, "simul_block"),
+                )
 
         # FieldVector-valued parameters #
 
@@ -419,12 +432,7 @@ class OxfordMercuryiPS(VisaInstrument):
         return self._target_vector.get_components(coordinate)[0]
 
     def _get_target_field(self) -> FieldVector:
-        return FieldVector(
-            **{
-                coord: self._get_component(coord)
-                for coord in 'xyz'
-            }
-        )
+        return FieldVector(**{coord: self._get_component(coord) for coord in "xyz"})
 
     def _get_ramp_rate(self) -> FieldVector:
         return FieldVector(
@@ -443,9 +451,9 @@ class OxfordMercuryiPS(VisaInstrument):
         Get the measured value of a coordinate. Measures all three fields
         and computes whatever coordinate we asked for.
         """
-        meas_field = FieldVector(x=self.GRPX.field(),
-                                 y=self.GRPY.field(),
-                                 z=self.GRPZ.field())
+        meas_field = FieldVector(
+            x=self.GRPX.field(), y=self.GRPY.field(), z=self.GRPZ.field()
+        )
 
         if len(coordinates) == 1:
             return meas_field.get_components(*coordinates)[0]
@@ -454,9 +462,7 @@ class OxfordMercuryiPS(VisaInstrument):
 
     def _get_field(self) -> FieldVector:
         return FieldVector(
-            x=self.x_measured(),
-            y=self.y_measured(),
-            z=self.z_measured()
+            x=self.x_measured(), y=self.y_measured(), z=self.z_measured()
         )
 
     def _set_target(self, coordinate: str, target: float) -> None:
@@ -468,24 +474,25 @@ class OxfordMercuryiPS(VisaInstrument):
         valid_vec = FieldVector()
         valid_vec.copy(self._target_vector)
         valid_vec.set_component(**{coordinate: target})
-        components = valid_vec.get_components('x', 'y', 'z')
+        components = valid_vec.get_components("x", "y", "z")
         if not self._field_limits(*components):
-            raise ValueError(f'Cannot set {coordinate} target to {target}, '
-                             'that would violate the field_limits. ')
+            raise ValueError(
+                f"Cannot set {coordinate} target to {target}, "
+                "that would violate the field_limits. "
+            )
 
         # update our internal target cache
         self._target_vector.set_component(**{coordinate: target})
 
         # actually assign the target on the workers
-        cartesian_targ = self._target_vector.get_components('x', 'y', 'z')
+        cartesian_targ = self._target_vector.get_components("x", "y", "z")
         for targ, worker in zip(cartesian_targ, self.submodules.values()):
             if not isinstance(worker, OxfordMercuryWorkerPS):
-                raise RuntimeError(f"Expected a MercuryWorkerPS but got "
-                                   f"{type(worker)}")
+                raise RuntimeError(f"Expected a MercuryWorkerPS but got {type(worker)}")
             worker.field_target(targ)
 
     def _set_target_field(self, field: FieldVector) -> None:
-        for coord in 'xyz':
+        for coord in "xyz":
             self._set_target(coord, field[coord])
 
     def get_idn(self) -> dict[str, str | None]:
@@ -495,8 +502,8 @@ class OxfordMercuryiPS(VisaInstrument):
         Returns:
             The normal IDN dict
         """
-        raw_idn_string = self.ask('*IDN?')
-        resps = raw_idn_string.split(':')
+        raw_idn_string = self.ask("*IDN?")
+        resps = raw_idn_string.split(":")
 
         idn_dict: dict[str, str | None] = {
             "model": resps[2],
@@ -515,8 +522,7 @@ class OxfordMercuryiPS(VisaInstrument):
         """
         for worker in self.submodules.values():
             if not isinstance(worker, OxfordMercuryWorkerPS):
-                raise RuntimeError(f"Expected a MercuryWorkerPS but got "
-                                   f"{type(worker)}")
+                raise RuntimeError(f"Expected a MercuryWorkerPS but got {type(worker)}")
             worker.ramp_to_target()
 
     def _ramp_simultaneously_blocking(self) -> None:
@@ -529,10 +535,9 @@ class OxfordMercuryiPS(VisaInstrument):
 
         for worker in self.submodules.values():
             if not isinstance(worker, OxfordMercuryWorkerPS):
-                raise RuntimeError(f"Expected a MercuryWorkerPS but got "
-                                   f"{type(worker)}")
+                raise RuntimeError(f"Expected a MercuryWorkerPS but got {type(worker)}")
             # wait for the ramp to finish, we don't care about the order
-            while worker.ramp_status() == 'TO SET':
+            while worker.ramp_status() == "TO SET":
                 time.sleep(0.1)
 
         self.update_field()
@@ -554,10 +559,10 @@ class OxfordMercuryiPS(VisaInstrument):
             worker.ramp_to_target()
             # now just wait for the ramp to finish
             # (unless we are testing)
-            if self.visabackend == 'sim':
+            if self.visabackend == "sim":
                 pass
             else:
-                while worker.ramp_status() == 'TO SET':
+                while worker.ramp_status() == "TO SET":
                     time.sleep(0.1)
 
         self.update_field()
@@ -566,25 +571,25 @@ class OxfordMercuryiPS(VisaInstrument):
         """
         Update all the field components.
         """
-        coords = ['x', 'y', 'z', 'r', 'theta', 'phi', 'rho']
+        coords = ["x", "y", "z", "r", "theta", "phi", "rho"]
         _ = self._get_field()
-        [getattr(self, f'{i}_measured').get() for i in coords]
+        [getattr(self, f"{i}_measured").get() for i in coords]
 
     def is_ramping(self) -> bool:
         """
         Returns True if any axis has a ramp status that is either 'TO SET' or
         'TO ZERO'
         """
-        ramping_statuus = ['TO SET', 'TO ZERO']
+        ramping_statuus = ["TO SET", "TO ZERO"]
         is_x_ramping = self.GRPX.ramp_status() in ramping_statuus
         is_y_ramping = self.GRPY.ramp_status() in ramping_statuus
         is_z_ramping = self.GRPZ.ramp_status() in ramping_statuus
 
         return is_x_ramping or is_y_ramping or is_z_ramping
 
-    def set_new_field_limits(self, limit_func: Callable[[float,
-                                                         float,
-                                                         float], bool]) -> None:
+    def set_new_field_limits(
+        self, limit_func: Callable[[float, float, float], bool]
+    ) -> None:
         """
         Assign a new field limit function to the driver
 
@@ -594,10 +599,12 @@ class OxfordMercuryiPS(VisaInstrument):
         """
 
         # first check that the current target is allowed
-        if not limit_func(*self._target_vector.get_components('x', 'y', 'z')):
-            raise ValueError('Can not assign new limit function; present '
-                             'target is illegal. Please change the target '
-                             'and try again.')
+        if not limit_func(*self._target_vector.get_components("x", "y", "z")):
+            raise ValueError(
+                "Can not assign new limit function; present "
+                "target is illegal. Please change the target "
+                "and try again."
+            )
 
         self._field_limits = limit_func
 
@@ -614,27 +621,29 @@ class OxfordMercuryiPS(VisaInstrument):
               blocking way that ensures that the total field stays within the
               safe region (provided that this region is convex).
         """
-        if mode not in ['simul', 'safe', 'simul_block']:
-            raise ValueError('Invalid ramp mode. Please provide either "simul"'
-                             ', "safe" or "simul_block".')
+        if mode not in ["simul", "safe", "simul_block"]:
+            raise ValueError(
+                'Invalid ramp mode. Please provide either "simul"'
+                ', "safe" or "simul_block".'
+            )
 
-        meas_vals = self._get_measured(['x', 'y', 'z'])
+        meas_vals = self._get_measured(["x", "y", "z"])
         # we asked for three coordinates, so we know that we got a list
         meas_vals = cast(list[float], meas_vals)
 
         for cur, worker in zip(meas_vals, self.submodules.values()):
             if not isinstance(worker, OxfordMercuryWorkerPS):
-                raise RuntimeError(f"Expected a MercuryWorkerPS but got "
-                                   f"{type(worker)}")
+                raise RuntimeError(f"Expected a MercuryWorkerPS but got {type(worker)}")
             if worker.field_target() != cur:
                 if worker.field_ramp_rate() == 0:
-                    raise ValueError(f'Can not ramp {worker}; ramp rate set to'
-                                     ' zero!')
+                    raise ValueError(f"Can not ramp {worker}; ramp rate set to zero!")
 
         # then the actual ramp
-        {'simul': self._ramp_simultaneously,
-         'safe': self._ramp_safely,
-         'simul_block': self._ramp_simultaneously_blocking}[mode]()
+        {
+            "simul": self._ramp_simultaneously,
+            "safe": self._ramp_safely,
+            "simul_block": self._ramp_simultaneously_blocking,
+        }[mode]()
 
     def _set_target_and_ramp(self, coordinate: str, mode: str, target: float) -> None:
         """Convenient method to combine setting target and ramping"""
@@ -700,20 +709,20 @@ class OxfordMercuryiPS(VisaInstrument):
         resp = self.visa_handle.query(cmd)
         visalog.debug(f"Got instrument response: {resp}")
 
-        if 'INVALID' in resp:
-            log.error(f'Invalid command. Got response: {resp}')
+        if "INVALID" in resp:
+            log.error(f"Invalid command. Got response: {resp}")
             base_resp = resp
         # if the command was not invalid, it can either be a SET or a READ
         # SET:
-        elif resp.endswith('VALID'):
-            base_resp = resp.split(':')[-2]
+        elif resp.endswith("VALID"):
+            base_resp = resp.split(":")[-2]
         # READ:
         else:
             # For "normal" commands only (e.g. '*IDN?' is excepted):
             # the response of a valid command echoes back said command,
             # thus we remove that part
-            base_cmd = cmd.replace('READ:', '')
-            base_resp = resp.replace(f'STAT:{base_cmd}', '')
+            base_cmd = cmd.replace("READ:", "")
+            base_resp = resp.replace(f"STAT:{base_cmd}", "")
 
         return base_resp
 

@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from qcodes.instrument import (
     Instrument,
@@ -23,7 +23,7 @@ class KeysightN6705BChannel(InstrumentChannel):
         **kwargs: "Unpack[InstrumentBaseKWArgs]",
     ) -> None:
         if chan not in [1, 2, 3, 4]:
-            raise ValueError('Invalid channel specified')
+            raise ValueError("Invalid channel specified")
 
         super().__init__(parent, name, **kwargs)
 
@@ -115,10 +115,10 @@ class KeysightN6705B(VisaInstrument):
 
         self.connect_message()
 
-    def get_idn(self) -> dict[str, Optional[str]]:
+    def get_idn(self) -> dict[str, str | None]:
         IDNstr = self.ask_raw("*IDN?")
         vendor, model, serial, firmware = map(str.strip, IDNstr.split(","))
-        IDN: dict[str, Optional[str]] = {
+        IDN: dict[str, str | None] = {
             "vendor": vendor,
             "model": model,
             "serial": serial,

@@ -6,13 +6,15 @@ from __future__ import annotations
 import logging
 import os
 from types import MethodType
-from typing import TYPE_CHECKING, Any, Callable, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from .command import Command
 from .parameter_base import ParamDataType, ParameterBase, ParamRawDataType
 from .sweep_values import SweepFixedValues
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from qcodes.instrument.base import InstrumentBase
     from qcodes.logger.instrument_logger import InstrumentLoggerAdapter
     from qcodes.validators import Validator
@@ -214,7 +216,6 @@ class Parameter(ParameterBase):
             existing_parameter = instrument.parameters.get(name, None)
 
             if existing_parameter:
-
                 # this check is redundant since its also in the baseclass
                 # but if we do not put it here it would be an api break
                 # as parameter duplication check won't be done first,

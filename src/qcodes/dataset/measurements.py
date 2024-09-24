@@ -3,6 +3,7 @@ The measurement module provides a context manager for registering parameters
 to measure and storing results. The user is expected to mainly interact with it
 using the :class:`.Measurement` class.
 """
+
 from __future__ import annotations
 
 import collections
@@ -10,13 +11,13 @@ import io
 import logging
 import traceback as tb_module
 import warnings
-from collections.abc import Mapping, MutableMapping, MutableSequence, Sequence
+from collections.abc import Callable, Mapping, MutableMapping, MutableSequence, Sequence
 from contextlib import ExitStack
 from copy import deepcopy
 from inspect import signature
 from numbers import Number
 from time import perf_counter
-from typing import TYPE_CHECKING, Any, Callable, TypeVar, Union, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 import numpy as np
 from opentelemetry import trace
@@ -64,7 +65,7 @@ TRACER = trace.get_tracer(__name__)
 
 ActionType = tuple[Callable[..., Any], Sequence[Any]]
 SubscriberType = tuple[
-    Callable[..., Any], Union[MutableSequence[Any], MutableMapping[Any, Any]]
+    Callable[..., Any], MutableSequence[Any] | MutableMapping[Any, Any]
 ]
 
 
@@ -341,7 +342,7 @@ class DataSaver:
             )
         for i in range(len(parameter.shapes)):
             # if this loop runs, then 'data' is a Sequence
-            data = cast(Sequence[Union[str, int, float, Any]], data)
+            data = cast(Sequence[str | int | float | Any], data)
 
             shape = parameter.shapes[i]
 
@@ -466,7 +467,7 @@ class DataSaver:
 
     @staticmethod
     def _validate_result_types(
-        results_dict: Mapping[ParamSpecBase, np.ndarray]
+        results_dict: Mapping[ParamSpecBase, np.ndarray],
     ) -> None:
         """
         Validate the type of the results
@@ -719,7 +720,9 @@ class Runner:
         exception_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        with DelayedKeyboardInterrupt():
+        with DelayedKeyboardInterrupt(
+            context={"reason": "qcodes measurement exit", "qcodes_guid": self.ds.guid}
+        ):
             self.datasaver.flush_data_to_database(block=True)
 
             # perform the "teardown" events
@@ -1224,12 +1227,12 @@ class Measurement:
 
             setpoints_lists.append(my_setpoints)
 
-        for i, setpoints in enumerate(setpoints_lists):
+        for i, expanded_setpoints in enumerate(setpoints_lists):
             self._register_parameter(
                 multiparameter.full_names[i],
                 multiparameter.labels[i],
                 multiparameter.units[i],
-                setpoints,
+                expanded_setpoints,
                 basis,
                 paramtype,
             )

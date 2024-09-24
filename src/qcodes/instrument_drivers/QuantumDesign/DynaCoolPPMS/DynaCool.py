@@ -4,11 +4,8 @@ from time import sleep
 from typing import (
     TYPE_CHECKING,
     Any,
-    Callable,
     ClassVar,
     Literal,
-    Optional,
-    Union,
     cast,
 )
 
@@ -19,6 +16,8 @@ import qcodes.validators as vals
 from qcodes.instrument import VisaInstrument, VisaInstrumentKWArgs
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from typing_extensions import Unpack
 
     from qcodes.parameters import Parameter
@@ -48,7 +47,7 @@ class DynaCool(VisaInstrument):
     temp_params = ("temperature_setpoint", "temperature_rate", "temperature_settling")
     field_params = ("field_target", "field_rate", "field_approach")
 
-    _errors: ClassVar[dict[int, Callable[[], None]]] = {
+    _errors: ClassVar[dict[int, "Callable[[], None]"]] = {
         -2: lambda: warnings.warn("Unknown command"),
         1: lambda: None,
         0: lambda: None,
@@ -264,14 +263,14 @@ class DynaCool(VisaInstrument):
         string, here's a convenience function to pick out the substring of
         interest
         """
-        return parser(resp.split(', ')[which_one])
+        return parser(resp.split(", ")[which_one])
 
-    def get_idn(self) -> dict[str, Optional[str]]:
-        response = self.ask('*IDN?')
+    def get_idn(self) -> dict[str, str | None]:
+        response = self.ask("*IDN?")
         # just clip out the error code
-        id_parts = response[2:].split(', ')
+        id_parts = response[2:].split(", ")
 
-        return dict(zip(('vendor', 'model', 'serial', 'firmware'), id_parts))
+        return dict(zip(("vendor", "model", "serial", "firmware"), id_parts))
 
     def ramp(self, mode: str = "blocking") -> None:
         """
@@ -283,14 +282,16 @@ class DynaCool(VisaInstrument):
                 target field has been reached. In "non-blocking" mode, this
                 function immediately returns.
         """
-        if mode not in ['blocking', 'non-blocking']:
-            raise ValueError('Invalid ramp mode received. Ramp mode must be '
-                             'either "blocking" or "non-blocking", received '
-                             f'"{mode}"')
+        if mode not in ["blocking", "non-blocking"]:
+            raise ValueError(
+                "Invalid ramp mode received. Ramp mode must be "
+                'either "blocking" or "non-blocking", received '
+                f'"{mode}"'
+            )
 
         target_in_tesla = self.field_target()
         # the target must be converted from T to Oersted
-        target_in_oe = target_in_tesla*1e4
+        target_in_oe = target_in_tesla * 1e4
 
         start_field = self.field_measured()
         ramp_range = np.abs(start_field - target_in_tesla)
@@ -301,11 +302,11 @@ class DynaCool(VisaInstrument):
         if mode == "blocking":
             self._do_blocking_ramp(target_in_tesla, start_field)
         else:
-            self._field_setter(param='field_target',
-                               value=target_in_oe)
+            self._field_setter(param="field_target", value=target_in_oe)
 
-    def _do_blocking_ramp(self, target_in_tesla: float,
-                          start_field_in_tesla: float) -> None:
+    def _do_blocking_ramp(
+        self, target_in_tesla: float, start_field_in_tesla: float
+    ) -> None:
         """
         Perform a blocking ramp. Only call this function from withing the
         `ramp` method.
@@ -315,22 +316,21 @@ class DynaCool(VisaInstrument):
         not immediately change to 'ramping' when asked to ramp.
         """
 
-        target_in_oe = target_in_tesla*1e4
+        target_in_oe = target_in_tesla * 1e4
         ramp_range = np.abs(target_in_tesla - start_field_in_tesla)
 
-        self._field_setter(param='field_target', value=target_in_oe)
+        self._field_setter(param="field_target", value=target_in_oe)
 
         # step 1: wait for the magnet to actually start ramping
         # NB: depending on the `field_approach`, we may reach the target
         # several times before the ramp is over (oscillations around target)
-        while np.abs(self.field_measured() - start_field_in_tesla) \
-                < ramp_range * 0.5:
+        while np.abs(self.field_measured() - start_field_in_tesla) < ramp_range * 0.5:
             sleep(self._ramp_time_resolution)
 
         # step 2: wait for the magnet to report that is has reached the
         # setpoint
 
-        while self.magnet_state() != 'holding':
+        while self.magnet_state() != "holding":
             sleep(self._ramp_time_resolution)
 
     def _field_ramp_setter(self, target: float) -> None:
@@ -338,22 +338,22 @@ class DynaCool(VisaInstrument):
         set_cmd for the field_ramp parameter
         """
         self.field_target(target)
-        self.ramp(mode='blocking')
+        self.ramp(mode="blocking")
 
     def _measured_field_getter(self) -> float:
-        resp = self.ask('FELD?')
+        resp = self.ask("FELD?")
         number_in_oersted = cast(float, DynaCool._pick_one(1, float, resp))
-        number_in_tesla = number_in_oersted*1e-4
+        number_in_tesla = number_in_oersted * 1e-4
         return number_in_tesla
 
     def _field_getter(
         self, param_name: Literal["field_target", "field_rate", "field_approach"]
-    ) -> Union[int, float]:
+    ) -> int | float:
         """
         The combined get function for the three field parameters,
         field_setpoint, field_rate, and field_approach
         """
-        raw_response = self.ask('GLFS?')
+        raw_response = self.ask("GLFS?")
         sp = self._pick_one(1, float, raw_response)
         rate = self._pick_one(2, float, raw_response)
         approach = self._pick_one(3, int, raw_response)
@@ -369,24 +369,23 @@ class DynaCool(VisaInstrument):
         The combined set function for the three field parameters,
         field_setpoint, field_rate, and field_approach
         """
-        temporary_values = list(self.parameters[p].raw_value
-                                for p in self.field_params)
-        values = cast(list[Union[int, float]], temporary_values)
+        temporary_values = list(self.parameters[p].raw_value for p in self.field_params)
+        values = cast(list[int | float], temporary_values)
         values[self.field_params.index(param)] = value
 
-        self.write(f'FELD {values[0]}, {values[1]}, {values[2]}, 0')
+        self.write(f"FELD {values[0]}, {values[1]}, {values[2]}, 0")
 
     def _temp_getter(
         self,
         param_name: Literal[
             "temperature_setpoint", "temperature_rate", "temperature_settling"
         ],
-    ) -> Union[int, float]:
+    ) -> int | float:
         """
         This function queries the last temperature setpoint (w. rate and mode)
         from the instrument.
         """
-        raw_response = self.ask('GLTS?')
+        raw_response = self.ask("GLTS?")
         sp = DynaCool._pick_one(1, float, raw_response)
         rate = DynaCool._pick_one(2, float, raw_response)
         mode = DynaCool._pick_one(3, int, raw_response)
@@ -404,12 +403,11 @@ class DynaCool(VisaInstrument):
         The setter function for the temperature parameters. All three are set
         with the same call to the instrument API
         """
-        temp_values = list(self.parameters[par].raw_value
-                           for par in self.temp_params)
-        values = cast(list[Union[int, float]], temp_values)
+        temp_values = list(self.parameters[par].raw_value for par in self.temp_params)
+        values = cast(list[int | float], temp_values)
         values[self.temp_params.index(param)] = value
 
-        self.write(f'TEMP {values[0]}, {values[1]}, {values[2]}')
+        self.write(f"TEMP {values[0]}, {values[1]}, {values[2]}")
 
     def write(self, cmd: str) -> None:
         """
@@ -418,7 +416,7 @@ class DynaCool(VisaInstrument):
         super().write(cmd)
         self._error_code = int(self.visa_handle.read())
         self._errors[self._error_code]()
-        self.visa_log.debug(f'Error code: {self._error_code}')
+        self.visa_log.debug(f"Error code: {self._error_code}")
 
     def ask(self, cmd: str) -> str:
         """
@@ -434,11 +432,14 @@ class DynaCool(VisaInstrument):
         Make sure to nicely close the server connection
         """
         try:
-            self.log.debug('Closing server connection.')
-            self.write('CLOSE')
+            self.log.debug("Closing server connection.")
+            self.write("CLOSE")
         except VisaIOError as e:
-            self.log.info('Could not close connection to server, perhaps the '
-                          'server is down?')
-            self.log.info(f'Got the following error from PyVISA: '
-                          f'{e.abbreviation}: {e.description}')
+            self.log.info(
+                "Could not close connection to server, perhaps the server is down?"
+            )
+            self.log.info(
+                f"Got the following error from PyVISA: "
+                f"{e.abbreviation}: {e.description}"
+            )
         super().close()

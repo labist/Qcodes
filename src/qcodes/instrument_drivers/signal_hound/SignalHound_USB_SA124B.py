@@ -2,7 +2,7 @@ import ctypes as ct
 import logging
 from enum import IntEnum
 from time import sleep
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -187,7 +187,7 @@ class SignalHoundUSBSA124B(Instrument):
     def __init__(
         self,
         name: str,
-        dll_path: Optional[str] = None,
+        dll_path: str | None = None,
         **kwargs: "Unpack[InstrumentBaseKWArgs]",
     ):
         """
@@ -583,7 +583,7 @@ class SignalHoundUSBSA124B(Instrument):
         # the third argument to saInitiate is a flag that is
         # currently not used
         err = self.dll.saInitiate(self.deviceHandle, mode, 0)
-        extrainfo: Optional[str] = None
+        extrainfo: str | None = None
         if err == saStatus.saInvalidParameterErr:
             extrainfo = """
                  In real-time mode, this value may be returned if the span
@@ -650,7 +650,7 @@ class SignalHoundUSBSA124B(Instrument):
         log.info("Stopping acquisition")
 
         err = self.dll.saAbort(self.deviceHandle)
-        extrainfo: Optional[str] = None
+        extrainfo: str | None = None
         if err == saStatus.saDeviceNotConfiguredErr:
             extrainfo = (
                 "Device was already idle! Did you call abort "
@@ -734,7 +734,6 @@ class SignalHoundUSBSA124B(Instrument):
         data = np.zeros(sweep_len)
         Navg = self.avg()
         for i in range(Navg):
-
             datamin = np.zeros((sweep_len), dtype=np.float32)
             datamax = np.zeros((sweep_len), dtype=np.float32)
 
@@ -776,7 +775,7 @@ class SignalHoundUSBSA124B(Instrument):
         return max_power
 
     @staticmethod
-    def check_for_error(err: int, source: str, extrainfo: Optional[str] = None) -> None:
+    def check_for_error(err: int, source: str, extrainfo: str | None = None) -> None:
         if err != saStatus.saNoError:
             err_str = saStatus(err).name
             if err > 0:
@@ -801,8 +800,8 @@ class SignalHoundUSBSA124B(Instrument):
                 msg = msg + f"\n Extra info: {extrainfo}"
             log.info(msg)
 
-    def get_idn(self) -> dict[str, Optional[str]]:
-        output: dict[str, Optional[str]] = {}
+    def get_idn(self) -> dict[str, str | None]:
+        output: dict[str, str | None] = {}
         output["vendor"] = "Signal Hound"
         output["model"] = self._get_device_type()
         serialnumber = ct.c_int32()

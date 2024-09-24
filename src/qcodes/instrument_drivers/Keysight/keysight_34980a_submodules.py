@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING
 
 from typing_extensions import deprecated
 
@@ -19,9 +19,10 @@ class KeysightSubModule(InstrumentChannel):
         name: user defined name for the module
         slot: the slot the module is installed
     """
+
     def __init__(
         self,
-        parent: Union[VisaInstrument, InstrumentChannel],
+        parent: VisaInstrument | InstrumentChannel,
         name: str,
         slot: int,
         **kwargs: "Unpack[InstrumentBaseKWArgs]",
@@ -34,7 +35,7 @@ class KeysightSubModule(InstrumentChannel):
 class Keysight34980ASwitchMatrixSubModule(InstrumentChannel):
     def __init__(
         self,
-        parent: Union[VisaInstrument, InstrumentChannel],
+        parent: VisaInstrument | InstrumentChannel,
         name: str,
         slot: int,
         **kwargs: "Unpack[InstrumentBaseKWArgs]",
@@ -64,7 +65,7 @@ class Keysight34980ASwitchMatrixSubModule(InstrumentChannel):
         raise NotImplementedError("Please subclass this")
 
     def to_channel_list(
-        self, paths: list[tuple[int, int]], wiring_config: Optional[str] = None
+        self, paths: list[tuple[int, int]], wiring_config: str | None = None
     ) -> str:
         """
         convert the (row, column) pair to a 4-digit channel number 'sxxx', where
@@ -97,7 +98,7 @@ class Keysight34980ASwitchMatrixSubModule(InstrumentChannel):
         """
         self.validate_value(row, column)
         channel = self.to_channel_list([(row, column)])
-        message = self.ask(f'ROUT:OPEN? {channel}')
+        message = self.ask(f"ROUT:OPEN? {channel}")
         return bool(int(message))
 
     def is_closed(self, row: int, column: int) -> bool:
@@ -114,7 +115,7 @@ class Keysight34980ASwitchMatrixSubModule(InstrumentChannel):
         """
         self.validate_value(row, column)
         channel = self.to_channel_list([(row, column)])
-        message = self.ask(f'ROUT:CLOSe? {channel}')
+        message = self.ask(f"ROUT:CLOSe? {channel}")
         return bool(int(message))
 
     def connect(self, row: int, column: int) -> None:
@@ -127,7 +128,7 @@ class Keysight34980ASwitchMatrixSubModule(InstrumentChannel):
         """
         self.validate_value(row, column)
         channel = self.to_channel_list([(row, column)])
-        self.write(f'ROUT:CLOSe {channel}')
+        self.write(f"ROUT:CLOSe {channel}")
 
     def disconnect(self, row: int, column: int) -> None:
         """
@@ -139,7 +140,7 @@ class Keysight34980ASwitchMatrixSubModule(InstrumentChannel):
         """
         self.validate_value(row, column)
         channel = self.to_channel_list([(row, column)])
-        self.write(f'ROUT:OPEN {channel}')
+        self.write(f"ROUT:OPEN {channel}")
 
     def connect_paths(self, paths: list[tuple[int, int]]) -> None:
         """
@@ -181,7 +182,7 @@ class Keysight34980ASwitchMatrixSubModule(InstrumentChannel):
             self.validate_value(row, column)
         channel_list_str = self.to_channel_list(paths)
         messages = self.ask(f"ROUTe:CLOSe? {channel_list_str}")
-        return [bool(int(message)) for message in messages.split(',')]
+        return [bool(int(message)) for message in messages.split(",")]
 
     def are_open(self, paths: list[tuple[int, int]]) -> list[bool]:
         """
@@ -199,7 +200,8 @@ class Keysight34980ASwitchMatrixSubModule(InstrumentChannel):
             self.validate_value(row, column)
         channel_list_str = self.to_channel_list(paths)
         messages = self.ask(f"ROUTe:OPEN? {channel_list_str}")
-        return [bool(int(message)) for message in messages.split(',')]
+        return [bool(int(message)) for message in messages.split(",")]
+
 
 @deprecated(
     "Use Keysight34980ASwitchMatrixSubModule", category=QCoDeSDeprecationWarning

@@ -4,7 +4,7 @@ This file holds the QCoDeS driver for the Galil DMC-41x3 motor controllers.
 Colloquially known as the "stepper motors".
 """
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import numpy as np
 import numpy.typing as npt
@@ -63,12 +63,12 @@ class GalilMotionController(Instrument):
         """
         self.g.GOpen(self._address + " --direct -s ALL")
 
-    def get_idn(self) -> dict[str, Optional[str]]:
+    def get_idn(self) -> dict[str, str | None]:
         """
         Get Galil motion controller hardware information
         """
         data = self.g.GInfo().split(" ")
-        idparts: list[Optional[str]] = [
+        idparts: list[str | None] = [
             "Galil Motion Control, Inc.",
             data[1],
             data[4],
@@ -641,9 +641,9 @@ class GalilDMC4133Arm:
 
         # initialization (all these points will have values in quadrature
         # counts)
-        self._left_bottom_position: Optional[tuple[int, int, int]] = None
-        self._left_top_position: Optional[tuple[int, int, int]] = None
-        self._right_top_position: Optional[tuple[int, int, int]] = None
+        self._left_bottom_position: tuple[int, int, int] | None = None
+        self._left_top_position: tuple[int, int, int] | None = None
+        self._right_top_position: tuple[int, int, int] | None = None
 
         # motion directions (all these values are in quadrature counts)
         self._a: np.ndarray  # right_top - left_bottom
@@ -658,8 +658,8 @@ class GalilDMC4133Arm:
         self._plane_eqn: np.ndarray
 
         # current vars
-        self._current_row: Optional[int] = None
-        self._current_pad: Optional[int] = None
+        self._current_row: int | None = None
+        self._current_pad: int | None = None
 
         # chip details
         self.rows: int
@@ -677,23 +677,23 @@ class GalilDMC4133Arm:
         self._target: np.ndarray
 
     @property
-    def current_row(self) -> Optional[int]:
+    def current_row(self) -> int | None:
         return self._current_row
 
     @property
-    def current_pad(self) -> Optional[int]:
+    def current_pad(self) -> int | None:
         return self._current_pad
 
     @property
-    def left_bottom_position(self) -> Optional[tuple[int, int, int]]:
+    def left_bottom_position(self) -> tuple[int, int, int] | None:
         return self._left_bottom_position
 
     @property
-    def left_top_position(self) -> Optional[tuple[int, int, int]]:
+    def left_top_position(self) -> tuple[int, int, int] | None:
         return self._left_top_position
 
     @property
-    def right_top_position(self) -> Optional[tuple[int, int, int]]:
+    def right_top_position(self) -> tuple[int, int, int] | None:
         return self._right_top_position
 
     @property
@@ -738,28 +738,24 @@ class GalilDMC4133Arm:
         self._arm_pick_up_distance = _convert_micro_meter_to_quadrature_counts(distance)
 
     def set_left_bottom_position(self) -> None:
-
         pos = self.controller.absolute_position()
         self._left_bottom_position = (pos["A"], pos["B"], pos["C"])
 
         self._calculate_ortho_vector()
 
     def set_left_top_position(self) -> None:
-
         pos = self.controller.absolute_position()
         self._left_top_position = (pos["A"], pos["B"], pos["C"])
 
         self._calculate_ortho_vector()
 
     def set_right_top_position(self) -> None:
-
         pos = self.controller.absolute_position()
         self._right_top_position = (pos["A"], pos["B"], pos["C"])
 
         self._calculate_ortho_vector()
 
     def _calculate_ortho_vector(self) -> None:
-
         if (
             self._left_bottom_position is None
             or self._left_top_position is None
@@ -953,7 +949,6 @@ class GalilDMC4133Arm:
         self.controller.wait_till_motion_complete()
 
     def _pick_up(self) -> None:
-
         self.move_motor_c_by(distance=-20)
         self._setup_motion(
             rel_vec=self._n, d=self._arm_pick_up_distance, speed=self._speed
@@ -961,7 +956,6 @@ class GalilDMC4133Arm:
         self._move()
 
     def _put_down(self) -> None:
-
         motion_vec = -1 * self._n
 
         pos = self.controller.absolute_position()
@@ -979,7 +973,6 @@ class GalilDMC4133Arm:
         self._move()
 
     def move_towards_left_bottom_position(self) -> None:
-
         self._pick_up()
 
         motion_vec = -1 * self._a
@@ -991,7 +984,6 @@ class GalilDMC4133Arm:
         self._current_pad = 1
 
     def move_to_next_row(self) -> None:
-
         if self._current_row is None or self._current_pad is None:
             raise RuntimeError("Current position unknown.")
 
@@ -1010,7 +1002,6 @@ class GalilDMC4133Arm:
         self._current_row = self._current_row + 1
 
     def move_to_begin_row_pad_from_end_row_last_pad(self) -> None:
-
         if self._current_row is None or self._current_pad is None:
             raise RuntimeError("Current position unknown.")
 
@@ -1032,7 +1023,6 @@ class GalilDMC4133Arm:
         self._current_pad = self._current_pad + 1
 
     def move_to_row(self, num: int) -> None:
-
         if num < 1 or num > self.rows:
             raise RuntimeError(
                 f"Row num: {num} is out of range. Row numbers start from 1 "
@@ -1062,7 +1052,6 @@ class GalilDMC4133Arm:
         self._current_row = num
 
     def move_to_pad(self, num: int) -> None:
-
         if num < 1 or num > self.pads:
             raise RuntimeError(
                 f"Pad num: {num} is out of range. Pad number start from 1 "
@@ -1092,38 +1081,31 @@ class GalilDMC4133Arm:
         self._current_pad = num
 
     def set_motor_a_forward_limit(self) -> None:
-
         pos = self.controller.absolute_position()
         self.controller.motor_a.forward_sw_limit(pos["A"])
 
     def set_motor_a_reverse_limit(self) -> None:
-
         pos = self.controller.absolute_position()
         self.controller.motor_a.reverse_sw_limit(pos["A"])
 
     def set_motor_b_forward_limit(self) -> None:
-
         pos = self.controller.absolute_position()
         self.controller.motor_b.forward_sw_limit(pos["B"])
 
     def set_motor_b_reverse_limit(self) -> None:
-
         pos = self.controller.absolute_position()
         self.controller.motor_b.reverse_sw_limit(pos["B"])
 
     def set_motor_c_forward_limit(self) -> None:
-
         pos = self.controller.absolute_position()
         self.controller.motor_c.forward_sw_limit(pos["C"])
 
     def set_motor_c_reverse_limit(self) -> None:
-
         pos = self.controller.absolute_position()
         self.controller.motor_c.reverse_sw_limit(pos["C"])
 
 
 def _convert_micro_meter_to_quadrature_counts(val: float) -> int:
-
     return int(20 * val)
 
 
