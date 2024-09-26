@@ -53,7 +53,7 @@ jobs:
     - name: install qcodes
       run: |
         pip install .[test] -c requirements.txt
-    - uses: jakebailey/pyright-action@v1.5.1
+    - uses: jakebailey/pyright-action@v2.3.2
       with:
         version: 1.1.303
     - name: Run Mypy
