@@ -300,7 +300,7 @@ class KeysightPNATrace(InstrumentChannel):
         
         self.ave_phase: Parameter = self.add_parameter('ave_phase',
                             unit='deg',
-                            label='$\\langle \angle{S} \\rangle$',
+                            label='$\\langle \\angle{S} \\rangle$',
                             get_cmd=lambda : np.mean(self.phase()),
                             snapshot_exclude=True)
         
