@@ -228,7 +228,8 @@ def datatype_from_setpoints_1d(setpoints: np.ndarray ) -> str:
     Returns:
         A string representing the plot type as described above
     """
-    if np.allclose(setpoints, setpoints[0]):
+    flat = setpoints.flatten()
+    if np.allclose(flat, flat[0]):
         return "1D_point"
     else:
         return "1D_line"
