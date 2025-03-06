@@ -193,7 +193,7 @@ def plot_dataset(
 
     # Retrieve info about the run for the title
 
-    experiment_name = dataset.exp_name
+    experiment_name = dataset.exp_name.split('/')[-1] # remove path info from plot
     sample_name = dataset.sample_name
     title = (
         f"Run #{dataset.captured_run_id}, "
