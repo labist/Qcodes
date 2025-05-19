@@ -238,6 +238,11 @@ def plot_dataset(
     new_colorbars: list[Colorbar | None] = []
 
     for data, ax, colorbar in zip(alldata, axeslist, colorbars):
+        if len(data[0]["data"])==0:
+            print('Found an empty dataset, continuing gracefully.')
+            new_colorbars.append(None)
+            continue
+
         if len(data) == 2:  # 1D PLOTTING
             log.debug(f"Doing a 1D plot with kwargs: {kwargs}")
 
