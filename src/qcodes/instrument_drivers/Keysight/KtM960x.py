@@ -1,6 +1,6 @@
 import ctypes
 from functools import partial
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Generic
 
 import qcodes.validators as vals
 from qcodes.instrument import Instrument, InstrumentBaseKWArgs
@@ -10,14 +10,17 @@ from qcodes.parameters import (
     ParamRawDataType,
     create_on_off_val_mapping,
 )
+from qcodes.parameters.parameter_base import ParameterDataTypeVar
 
-from .KtM960xDefs import *  # noqa F403
+from . import KtM960xDefs
 
 if TYPE_CHECKING:
     from typing_extensions import Unpack
 
 
-class Measure(MultiParameter):
+class Measure(
+    MultiParameter[ParameterDataTypeVar, "KeysightM960x"], Generic[ParameterDataTypeVar]
+):
     def __init__(self, name: str, instrument: "KeysightM960x") -> None:
         super().__init__(
             name=name,
@@ -28,7 +31,6 @@ class Measure(MultiParameter):
             labels="Measurement Data",
             docstring="param that returns measurement values",
         )
-        self.instrument: KeysightM960x
 
     def get_raw(self) -> tuple[ParamRawDataType, ...]:
         return self.instrument._measure()
@@ -63,8 +65,8 @@ class KeysightM960x(Instrument):
         self.output: Parameter = self.add_parameter(
             "output",
             label="Source Output Enable",
-            get_cmd=partial(self._get_vi_bool, KTM960X_ATTR_OUTPUT_ENABLED),
-            set_cmd=partial(self._set_vi_bool, KTM960X_ATTR_OUTPUT_ENABLED),
+            get_cmd=partial(self._get_vi_bool, KtM960xDefs.KTM960X_ATTR_OUTPUT_ENABLED),
+            set_cmd=partial(self._set_vi_bool, KtM960xDefs.KTM960X_ATTR_OUTPUT_ENABLED),
             val_mapping=create_on_off_val_mapping(on_val=True, off_val=False),
         )
         """Parameter output"""
@@ -73,8 +75,12 @@ class KeysightM960x(Instrument):
             "voltage_level",
             label="Source Voltage Level",
             unit="Volt",
-            get_cmd=partial(self._get_vi_real64, KTM960X_ATTR_OUTPUT_VOLTAGE_LEVEL),
-            set_cmd=partial(self._set_vi_real64, KTM960X_ATTR_OUTPUT_VOLTAGE_LEVEL),
+            get_cmd=partial(
+                self._get_vi_real64, KtM960xDefs.KTM960X_ATTR_OUTPUT_VOLTAGE_LEVEL
+            ),
+            set_cmd=partial(
+                self._set_vi_real64, KtM960xDefs.KTM960X_ATTR_OUTPUT_VOLTAGE_LEVEL
+            ),
             vals=vals.Numbers(-210, 210),
         )
         """Parameter voltage_level"""
@@ -84,8 +90,12 @@ class KeysightM960x(Instrument):
             label="Output Current Range",
             unit="Amp",
             vals=vals.Numbers(1e-9, 300e-3),
-            get_cmd=partial(self._get_vi_real64, KTM960X_ATTR_OUTPUT_CURRENT_RANGE),
-            set_cmd=partial(self._set_vi_real64, KTM960X_ATTR_OUTPUT_CURRENT_RANGE),
+            get_cmd=partial(
+                self._get_vi_real64, KtM960xDefs.KTM960X_ATTR_OUTPUT_CURRENT_RANGE
+            ),
+            set_cmd=partial(
+                self._set_vi_real64, KtM960xDefs.KTM960X_ATTR_OUTPUT_CURRENT_RANGE
+            ),
         )
         """Parameter current_range"""
 
@@ -94,10 +104,10 @@ class KeysightM960x(Instrument):
             label="Current Measurement Range",
             unit="Amp",
             get_cmd=partial(
-                self._get_vi_real64, KTM960X_ATTR_MEASUREMENT_CURRENT_RANGE
+                self._get_vi_real64, KtM960xDefs.KTM960X_ATTR_MEASUREMENT_CURRENT_RANGE
             ),
             set_cmd=partial(
-                self._set_vi_real64, KTM960X_ATTR_MEASUREMENT_CURRENT_RANGE
+                self._set_vi_real64, KtM960xDefs.KTM960X_ATTR_MEASUREMENT_CURRENT_RANGE
             ),
             vals=vals.Numbers(1e-9, 300e-3),
         )
@@ -108,10 +118,12 @@ class KeysightM960x(Instrument):
             label="Current Measurement Integration Time",
             unit="Seconds",
             get_cmd=partial(
-                self._get_vi_real64, KTM960X_ATTR_MEASUREMENT_CURRENT_APERTURE
+                self._get_vi_real64,
+                KtM960xDefs.KTM960X_ATTR_MEASUREMENT_CURRENT_APERTURE,
             ),
             set_cmd=partial(
-                self._set_vi_real64, KTM960X_ATTR_MEASUREMENT_CURRENT_APERTURE
+                self._set_vi_real64,
+                KtM960xDefs.KTM960X_ATTR_MEASUREMENT_CURRENT_APERTURE,
             ),
             vals=vals.Numbers(800e-9, 2),
         )
@@ -123,23 +135,25 @@ class KeysightM960x(Instrument):
         """Parameter measure_data"""
 
         self._get_driver_desc = partial(
-            self._get_vi_string, KTM960X_ATTR_SPECIFIC_DRIVER_DESCRIPTION
+            self._get_vi_string, KtM960xDefs.KTM960X_ATTR_SPECIFIC_DRIVER_DESCRIPTION
         )
         self._get_driver_prefix = partial(
-            self._get_vi_string, KTM960X_ATTR_SPECIFIC_DRIVER_PREFIX
+            self._get_vi_string, KtM960xDefs.KTM960X_ATTR_SPECIFIC_DRIVER_PREFIX
         )
         self._get_driver_revision = partial(
-            self._get_vi_string, KTM960X_ATTR_SPECIFIC_DRIVER_REVISION
+            self._get_vi_string, KtM960xDefs.KTM960X_ATTR_SPECIFIC_DRIVER_REVISION
         )
         self._get_firmware_revision = partial(
-            self._get_vi_string, KTM960X_ATTR_INSTRUMENT_FIRMWARE_REVISION
+            self._get_vi_string, KtM960xDefs.KTM960X_ATTR_INSTRUMENT_FIRMWARE_REVISION
         )
-        self._get_model = partial(self._get_vi_string, KTM960X_ATTR_INSTRUMENT_MODEL)
+        self._get_model = partial(
+            self._get_vi_string, KtM960xDefs.KTM960X_ATTR_INSTRUMENT_MODEL
+        )
         self._get_serial_number = partial(
-            self._get_vi_string, KTM960X_ATTR_MODULE_SERIAL_NUMBER
+            self._get_vi_string, KtM960xDefs.KTM960X_ATTR_MODULE_SERIAL_NUMBER
         )
         self._get_manufacturer = partial(
-            self._get_vi_string, KTM960X_ATTR_INSTRUMENT_MANUFACTURER
+            self._get_vi_string, KtM960xDefs.KTM960X_ATTR_INSTRUMENT_MANUFACTURER
         )
 
         self._connect()
@@ -154,7 +168,7 @@ class KeysightM960x(Instrument):
             raise SystemError(f"connection to device failed! error: {status}")
 
     def get_idn(self) -> dict[str, str | None]:
-        """generates the ``*IDN`` dictionary for qcodes"""
+        """Generates the ``*IDN`` dictionary for qcodes"""
 
         id_dict: dict[str, str | None] = {
             "firmware": self._get_firmware_revision(),
@@ -170,15 +184,16 @@ class KeysightM960x(Instrument):
     def _measure(self) -> tuple[ParamRawDataType, ...]:
         # Setup the output
         self._set_vi_int(
-            KTM960X_ATTR_OUTPUT_PRIORITY_MODE, KTM960X_VAL_PRIORITY_MODE_VOLTAGE
+            KtM960xDefs.KTM960X_ATTR_OUTPUT_PRIORITY_MODE,
+            KtM960xDefs.KTM960X_VAL_PRIORITY_MODE_VOLTAGE,
         )
         self._set_vi_int(
-            KTM960X_ATTR_OUTPUT_OPERATION_MODE,
-            KTM960X_VAL_OUTPUT_OPERATION_MODE_STANDARD,
+            KtM960xDefs.KTM960X_ATTR_OUTPUT_OPERATION_MODE,
+            KtM960xDefs.KTM960X_VAL_OUTPUT_OPERATION_MODE_STANDARD,
         )
         self._set_vi_int(
-            KTM960X_ATTR_MEASUREMENT_ACQUISITION_MODE,
-            KTM960X_VAL_ACQUISITION_MODE_NORMAL,
+            KtM960xDefs.KTM960X_ATTR_MEASUREMENT_ACQUISITION_MODE,
+            KtM960xDefs.KTM960X_VAL_ACQUISITION_MODE_NORMAL,
         )
 
         ch_num_buf = (ctypes.c_int32 * 1)()
@@ -187,7 +202,7 @@ class KeysightM960x(Instrument):
         ch_num_buf[0] = 1
         status = self._dll.KtM960x_MeasurementMeasure(
             self._session,
-            KTM960X_VAL_MEASUREMENT_TYPE_ALL,
+            KtM960xDefs.KTM960X_VAL_MEASUREMENT_TYPE_ALL,
             1,
             ch_num_buf,
             1024,

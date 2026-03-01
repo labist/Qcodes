@@ -1,9 +1,9 @@
 import time
 from bisect import bisect
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, Generic
 
 import numpy as np
-from typing_extensions import deprecated
+from typing_extensions import TypeVar
 
 from qcodes import validators as vals
 from qcodes.instrument import (
@@ -14,12 +14,13 @@ from qcodes.instrument import (
     VisaInstrumentKWArgs,
 )
 from qcodes.parameters import Group, GroupParameter, Parameter
-from qcodes.utils import QCoDeSDeprecationWarning
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from typing_extensions import Unpack
+
+    from qcodes.instrument.channel import ChannelTuple
 
 
 class LakeshoreBaseOutput(InstrumentChannel):
@@ -47,6 +48,7 @@ class LakeshoreBaseOutput(InstrumentChannel):
             has_pid: if True, then the output supports closed loop control,
               hence it will have three parameters to set it up: 'P', 'I', and 'D'
             **kwargs: Forwarded to baseclass.
+
         """
         super().__init__(parent, output_name, **kwargs)
 
@@ -234,6 +236,7 @@ class LakeshoreBaseOutput(InstrumentChannel):
             get_parser=float,
             set_cmd=f"SETP {output_index}, {{}}",
             get_cmd=f"SETP? {output_index}",
+            post_delay=0.5,  # getting setpoint too soon after setting may fetch previous setpoint
         )
         """
         The value of the setpoint in the preferred units of the control loop sensor
@@ -275,7 +278,7 @@ class LakeshoreBaseOutput(InstrumentChannel):
                 self.setpoint_ramp_enabled,
                 self.setpoint_ramp_rate,
             ],
-            set_cmd=f"RAMP {output_index},{{setpoint_ramping_enabled}},{{setpoint_ramping_rate}}",
+            set_cmd=f"RAMP {output_index},{{setpoint_ramp_enabled}},{{setpoint_ramp_rate}}",
             get_cmd=f"RAMP? {output_index}",
         )
 
@@ -392,6 +395,7 @@ class LakeshoreBaseOutput(InstrumentChannel):
         Returns:
             the value of the resulting `output_range`, that is also available
             from the `output_range` parameter itself
+
         """
         if self.range_limits.get_latest() is None:
             raise RuntimeError(
@@ -426,6 +430,7 @@ class LakeshoreBaseOutput(InstrumentChannel):
 
         Args:
             temperature: temperature in K
+
         """
         self.set_range_from_temperature(temperature)
         self.setpoint(temperature)
@@ -460,6 +465,7 @@ class LakeshoreBaseOutput(InstrumentChannel):
                 return (same as `wait_equilibration_time` parameter);
                 if None, then the value of the corresponding
                 `wait_equilibration_time` parameter is used
+
         """
         wait_cycle_time = wait_cycle_time or self.wait_cycle_time.get_latest()
         assert wait_cycle_time is not None
@@ -501,13 +507,6 @@ class LakeshoreBaseOutput(InstrumentChannel):
             time.sleep(wait_cycle_time)
 
 
-@deprecated(
-    "Base class renamed to LakeshoreBaseOutput", category=QCoDeSDeprecationWarning
-)
-class BaseOutput(LakeshoreBaseOutput):
-    pass
-
-
 class LakeshoreBaseSensorChannel(InstrumentChannel):
     # A dictionary of sensor statuses that assigns a string representation of
     # the status to a status bit weighting (e.g. {4: 'VMIX OVL'})
@@ -529,6 +528,7 @@ class LakeshoreBaseSensorChannel(InstrumentChannel):
             channel: string identifier of the channel as referenced in commands;
               for example, '1' or '6' for model 372, or 'A' and 'C' for model 336
             **kwargs: Forwarded to base class.
+
         """
 
         super().__init__(parent, name)
@@ -602,6 +602,7 @@ class LakeshoreBaseSensorChannel(InstrumentChannel):
                 sum of status codes, it is an integer value in the form of a
                 string (e.g. "32"), as returned by the corresponding
                 instrument command
+
         """
         codes = self._get_sum_terms(
             list(self.SENSOR_STATUSES.keys()), int(sum_of_codes)
@@ -628,6 +629,7 @@ class LakeshoreBaseSensorChannel(InstrumentChannel):
         >>> terms = [1, 16, 32, 64, 128]
         >>> get_sum_terms(terms, 96)
         ... [64, 32]  # This is correct because 96=64+32
+
         """
         terms_in_number: list[int] = []
 
@@ -659,15 +661,15 @@ class LakeshoreBaseSensorChannel(InstrumentChannel):
         return terms_in_number
 
 
-@deprecated(
-    "Base class renamed to LakeshoreBaseSensorChannel",
-    category=QCoDeSDeprecationWarning,
+ChanType_co = TypeVar(
+    "ChanType_co",
+    bound=LakeshoreBaseSensorChannel,
+    default=LakeshoreBaseSensorChannel,
+    covariant=True,
 )
-class BaseSensorChannel(LakeshoreBaseSensorChannel):
-    pass
 
 
-class LakeshoreBase(VisaInstrument):
+class LakeshoreBase(VisaInstrument, Generic[ChanType_co]):
     """
     This base class has been written to be that base for the Lakeshore 336
     and 372. There are probably other lakeshore modes that can use the
@@ -683,9 +685,12 @@ class LakeshoreBase(VisaInstrument):
     constructor via `add_submodule` method.
     """
 
-    # Redefine this in the model-specific class in case you want to use a
+    # Define this in the model-specific class in case you want to use a
     # different class for sensor channels
-    CHANNEL_CLASS = LakeshoreBaseSensorChannel
+    # type error. It's not clear to me why assigning a value that matches the
+    # default of the TypeVar is an error but both mypy and pyright
+    # flags it here.
+    CHANNEL_CLASS: type[ChanType_co] = LakeshoreBaseSensorChannel  # type: ignore[assignment]
 
     # This dict has channel name in the driver as keys, and channel "name" that
     # is used in instrument commands as values. For example, if channel called
@@ -721,7 +726,10 @@ class LakeshoreBase(VisaInstrument):
             channel = self.CHANNEL_CLASS(self, channel_name, command)
             channels.append(channel)
             self.add_submodule(channel_name, channel)
-        self.add_submodule("channels", channels.to_channel_tuple())
+        self.channels: ChannelTuple[ChanType_co] = self.add_submodule(
+            "channels", channels.to_channel_tuple()
+        )
+        """A ChannelTuple of sensor channels on the Lakeshore instrument."""
 
         # on Model335 we need to change serial port settings
         # before we can communicate

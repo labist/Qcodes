@@ -30,6 +30,7 @@ def set_data_export_type(export_type: str) -> None:
     Args:
         export_type: Export type to use.
             Currently supported values: netcdf, csv.
+
     """
     # disable file export
     if export_type is None:
@@ -72,6 +73,7 @@ def get_data_export_type(
 
     Returns:
         Data export type
+
     """
     # If export_type is None, get value from config
     export_type = export_type or qcodes.config[DATASET_CONFIG_SECTION][EXPORT_TYPE]
@@ -95,7 +97,8 @@ def _expand_export_path(export_path: str) -> str:
     expanded_export_folder = db_location.parent / "_".join(
         (db_location.stem, db_location.suffix.replace(".", ""))
     )
-    return export_path.replace("{db_location}", str(expanded_export_folder))
+    # we ignore the rule here since this is actually a manual expansion of the f string
+    return export_path.replace("{db_location}", str(expanded_export_folder))  # noqa: RUF027
 
 
 def get_data_export_path() -> Path:
@@ -103,6 +106,7 @@ def get_data_export_path() -> Path:
 
     Returns:
         Path
+
     """
     return (
         Path(_expand_export_path(qcodes.config[DATASET_CONFIG_SECTION][EXPORT_PATH]))
@@ -117,6 +121,7 @@ def set_data_export_prefix(export_prefix: str) -> None:
 
     Args:
         export_prefix: Prefix, e.g. "qcodes_"
+
     """
     qcodes.config[DATASET_CONFIG_SECTION][EXPORT_PREFIX] = export_prefix
 
@@ -127,6 +132,7 @@ def get_data_export_prefix() -> str:
 
     Returns:
         Prefix, e.g. "qcodes_"
+
     """
     return qcodes.config[DATASET_CONFIG_SECTION][EXPORT_PREFIX]
 

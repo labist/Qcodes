@@ -6,7 +6,7 @@ of its C library in a python-friendly way.
 
 import ctypes
 from ctypes import POINTER
-from typing import TYPE_CHECKING, Any, ClassVar, Union
+from typing import TYPE_CHECKING, Any, ClassVar, TypeAlias
 
 # `ParameterBase` is needed because users may pass instrument parameters
 # that originate from `Instrument.parameters` dictionary which is typed
@@ -28,6 +28,11 @@ POINTER_c_uint8 = Any
 POINTER_c_uint16 = Any
 POINTER_c_uint32 = Any
 POINTER_c_long = Any
+
+
+IntOrParam: TypeAlias = "int | Parameter"
+# deprecated alias for backwards compatibility
+int_or_param: TypeAlias = IntOrParam  # noqa: PYI042
 
 
 class AlazarATSAPI(WrappedDll):
@@ -54,7 +59,7 @@ class AlazarATSAPI(WrappedDll):
     signatures: ClassVar[dict[str, Signature]] = {}
 
     def set_trigger_time_out(
-        self, handle: int, timeout_ticks: Union[int, "Parameter"]
+        self, handle: int, timeout_ticks: IntOrParam
     ) -> ReturnCode:
         return self._sync_dll_call("AlazarSetTriggerTimeOut", handle, timeout_ticks)
 
@@ -227,10 +232,10 @@ class AlazarATSAPI(WrappedDll):
     def set_capture_clock(
         self,
         handle: int,
-        source_id: Union[int, "Parameter"],
-        sample_rate_id_or_value: Union[int, "Parameter"],
-        edge_id: Union[int, "Parameter"],
-        decimation: Union[int, "Parameter"],
+        source_id: IntOrParam,
+        sample_rate_id_or_value: IntOrParam,
+        edge_id: IntOrParam,
+        decimation: IntOrParam,
     ) -> ReturnCode:
         return self._sync_dll_call(
             "AlazarSetCaptureClock",
@@ -252,10 +257,10 @@ class AlazarATSAPI(WrappedDll):
     def input_control(
         self,
         handle: int,
-        channel_id: Union[int, "Parameter"],
-        coupling_id: Union[int, "Parameter"],
-        range_id: Union[int, "Parameter"],
-        impedance_id: Union[int, "Parameter"],
+        channel_id: IntOrParam,
+        coupling_id: IntOrParam,
+        range_id: IntOrParam,
+        impedance_id: IntOrParam,
     ) -> ReturnCode:
         return self._sync_dll_call(
             "AlazarInputControl",
@@ -273,8 +278,8 @@ class AlazarATSAPI(WrappedDll):
     def set_bw_limit(
         self,
         handle: int,
-        channel_id: Union[int, "Parameter"],
-        flag: Union[int, "Parameter"],
+        channel_id: IntOrParam,
+        flag: IntOrParam,
     ) -> ReturnCode:
         return self._sync_dll_call("AlazarSetBWLimit", handle, channel_id, flag)
 
@@ -285,15 +290,15 @@ class AlazarATSAPI(WrappedDll):
     def set_trigger_operation(
         self,
         handle: int,
-        trigger_operation: Union[int, "Parameter"],
-        trigger_engine_id_1: Union[int, "Parameter"],
-        source_id_1: Union[int, "Parameter"],
-        slope_id_1: Union[int, "Parameter"],
-        level_1: Union[int, "Parameter"],
-        trigger_engine_id_2: Union[int, "Parameter"],
-        source_id_2: Union[int, "Parameter"],
-        slope_id_2: Union[int, "Parameter"],
-        level_2: Union[int, "Parameter"],
+        trigger_operation: IntOrParam,
+        trigger_engine_id_1: IntOrParam,
+        source_id_1: IntOrParam,
+        slope_id_1: IntOrParam,
+        level_1: IntOrParam,
+        trigger_engine_id_2: IntOrParam,
+        source_id_2: IntOrParam,
+        slope_id_2: IntOrParam,
+        level_2: IntOrParam,
     ) -> ReturnCode:
         return self._sync_dll_call(
             "AlazarSetTriggerOperation",
@@ -320,8 +325,8 @@ class AlazarATSAPI(WrappedDll):
     def set_external_trigger(
         self,
         handle: int,
-        coupling_id: Union[int, "Parameter"],
-        range_id: Union[int, "Parameter"],
+        coupling_id: IntOrParam,
+        range_id: IntOrParam,
     ) -> ReturnCode:
         return self._sync_dll_call(
             "AlazarSetExternalTrigger", handle, coupling_id, range_id
@@ -331,9 +336,7 @@ class AlazarATSAPI(WrappedDll):
         {"AlazarSetExternalTrigger": Signature(argument_types=[HANDLE, U32, U32])}
     )
 
-    def set_trigger_delay(
-        self, handle: int, value: Union[int, "Parameter"]
-    ) -> ReturnCode:
+    def set_trigger_delay(self, handle: int, value: IntOrParam) -> ReturnCode:
         return self._sync_dll_call("AlazarSetTriggerDelay", handle, value)
 
     signatures.update(
@@ -343,8 +346,8 @@ class AlazarATSAPI(WrappedDll):
     def configure_aux_io(
         self,
         handle: int,
-        mode_id: Union[int, "Parameter"],
-        mode_parameter_value: Union[int, "Parameter"],
+        mode_id: IntOrParam,
+        mode_parameter_value: IntOrParam,
     ) -> ReturnCode:
         return self._sync_dll_call(
             "AlazarConfigureAuxIO", handle, mode_id, mode_parameter_value
@@ -357,8 +360,8 @@ class AlazarATSAPI(WrappedDll):
     def set_record_size(
         self,
         handle: int,
-        pre_trigger_samples: Union[int, "Parameter"],
-        post_trigger_samples: Union[int, "Parameter"],
+        pre_trigger_samples: IntOrParam,
+        post_trigger_samples: IntOrParam,
     ) -> ReturnCode:
         return self._sync_dll_call(
             "AlazarSetRecordSize", handle, pre_trigger_samples, post_trigger_samples
@@ -534,6 +537,7 @@ class AlazarATSAPI(WrappedDll):
 
         Returns:
             Tuple of bits per sample and maximum board memory in samples
+
         """
         bps = ctypes.c_uint8(0)  # bps bits per sample
         max_s = ctypes.c_uint32(0)  # max_s memory size in samples
@@ -553,6 +557,7 @@ class AlazarATSAPI(WrappedDll):
 
         Returns:
             Version string in the format "<major>.<minor>"
+
         """
         major = ctypes.c_uint8(0)
         minor = ctypes.c_uint8(0)
@@ -570,6 +575,7 @@ class AlazarATSAPI(WrappedDll):
 
         Returns:
             Version string in the format "<major>.<minor>.<revision>"
+
         """
         major = ctypes.c_uint8(0)
         minor = ctypes.c_uint8(0)
@@ -592,6 +598,7 @@ class AlazarATSAPI(WrappedDll):
 
         Returns:
             Version string in the format "<major>.<minor>.<revision>"
+
         """
         major = ctypes.c_uint8(0)
         minor = ctypes.c_uint8(0)
@@ -618,6 +625,7 @@ class AlazarATSAPI(WrappedDll):
 
         Returns:
             Value of the requested capability
+
         """
         value = ctypes.c_uint32(0)
         reserved = 0
@@ -637,6 +645,7 @@ class AlazarATSAPI(WrappedDll):
 
         Returns:
             The value read as an integer
+
         """
         output = ctypes.c_uint32(0)
         self.read_register(
@@ -655,5 +664,6 @@ class AlazarATSAPI(WrappedDll):
             handle: Handle of the board of interest
             offset: The offset in memory to write to
             value: The value to write
+
         """
         self.write_register(handle, offset, value, REGISTER_ACCESS_PASSWORD)

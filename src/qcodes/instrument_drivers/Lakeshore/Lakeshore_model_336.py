@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING, ClassVar
 
 import qcodes.validators as vals
-from qcodes.parameters import Group, GroupParameter
+from qcodes.parameters import Group, GroupParameter, Parameter
 
 from .lakeshore_base import (
     LakeshoreBase,
@@ -26,7 +26,7 @@ _channel_name_to_command_map: dict[str, str] = {"A": "A", "B": "B", "C": "C", "D
 _channel_name_to_outmode_command_map: dict[str, int] = {
     ch_name: num_for_cmd
     for num_for_cmd, ch_name in enumerate(
-        ["None"] + list(_channel_name_to_command_map.keys())
+        ["None", *list(_channel_name_to_command_map.keys())]
     )
 }
 
@@ -84,6 +84,10 @@ class LakeshoreModel336VoltageSource(LakeshoreBaseOutput):
     }
 
     RANGES: ClassVar[dict[str, int]] = {"off": 0, "low": 1, "medium": 2, "high": 3}
+
+    _input_channel_parameter_kwargs: ClassVar[dict[str, dict[str, int]]] = {
+        "val_mapping": _channel_name_to_outmode_command_map
+    }
 
     def __init__(
         self,
@@ -203,8 +207,80 @@ class LakeshoreModel336Channel(LakeshoreBaseSensorChannel):
             get_cmd=f"INTYPE? {self._channel}",
         )
 
+        # Parameters related to temperature calibration curve (CRVHDR)
+        self.curve_number: Parameter = self.add_parameter(
+            "curve_number",
+            get_cmd=f"INCRV? {self._channel}",
+            set_cmd=False,
+            get_parser=int,
+            label="Temperature calibration curve number",
+        )
+        """
+        Temperature calibration curve number that is selected now
+        """
+        self.curve_name: GroupParameter = self.add_parameter(
+            "curve_name",
+            label="Temperature calibration curve name",
+            parameter_class=GroupParameter,
+        )
+        """
+        Temperature calibration curve name
+        for the current curve as selected by ``curve_number``
+        """
+        self.curve_sn: GroupParameter = self.add_parameter(
+            "curve_sn",
+            label="Temperature calibration curve SN",
+            parameter_class=GroupParameter,
+        )
+        """
+        Temperature calibration curve SN
+        for the current curve as selected by ``curve_number``
+        """
+        self.curve_format: GroupParameter = self.add_parameter(
+            "curve_format",
+            label="Temperature calibration curve format",
+            get_parser=int,
+            val_mapping={"mV/K": 1, "V/K": 2, "Ohms/K": 3, "log Ohms/K": 4},
+            parameter_class=GroupParameter,
+        )
+        """
+        Temperature calibration curve format
+        for the current curve as selected by ``curve_number``
+        """
+        self.curve_limit: GroupParameter = self.add_parameter(
+            "curve_limit",
+            get_parser=float,
+            label="Temperature calibration curve limit value",
+            parameter_class=GroupParameter,
+        )
+        """
+        Temperature calibration curve limit value
+        for the current curve as selected by ``curve_number``
+        """
+        self.curve_coefficient: GroupParameter = self.add_parameter(
+            "curve_coefficient",
+            get_parser=int,
+            label="Temperature calibration curve coefficient",
+            val_mapping={"negative": 1, "positive": 2},
+            parameter_class=GroupParameter,
+        )
+        """
+        Temperature calibration curve coefficient
+        for the current curve as selected by ``curve_number``
+        """
+        self.curve_parameters_group = Group(
+            [
+                self.curve_name,
+                self.curve_sn,
+                self.curve_format,
+                self.curve_limit,
+                self.curve_coefficient,
+            ],
+            get_cmd=lambda: f"CRVHDR? {self.curve_number()}",
+        )
 
-class LakeshoreModel336(LakeshoreBase):
+
+class LakeshoreModel336(LakeshoreBase[LakeshoreModel336Channel]):
     """
     QCoDeS driver for Lakeshore Model 336 Temperature Controller.
     """
@@ -222,7 +298,31 @@ class LakeshoreModel336(LakeshoreBase):
     ) -> None:
         super().__init__(name, address, **kwargs)
 
-        self.output_1 = LakeshoreModel336CurrentSource(self, "output_1", 1)
-        self.output_2 = LakeshoreModel336CurrentSource(self, "output_2", 2)
-        self.output_3 = LakeshoreModel336VoltageSource(self, "output_3", 3)
-        self.output_4 = LakeshoreModel336VoltageSource(self, "output_4", 4)
+        self.output_1: LakeshoreModel336CurrentSource = self.add_submodule(
+            name="output_1",
+            submodule=LakeshoreModel336CurrentSource(self, "output_1", 1),
+        )
+        """
+        Control output 1 of Lakeshore Model 336.
+        """
+        self.output_2: LakeshoreModel336CurrentSource = self.add_submodule(
+            name="output_2",
+            submodule=LakeshoreModel336CurrentSource(self, "output_2", 2),
+        )
+        """
+        Control output 2 of Lakeshore Model 336.
+        """
+        self.output_3: LakeshoreModel336VoltageSource = self.add_submodule(
+            name="output_3",
+            submodule=LakeshoreModel336VoltageSource(self, "output_3", 3),
+        )
+        """
+        Control output 3 of Lakeshore Model 336.
+        """
+        self.output_4: LakeshoreModel336VoltageSource = self.add_submodule(
+            name="output_4",
+            submodule=LakeshoreModel336VoltageSource(self, "output_4", 4),
+        )
+        """
+        Control output 4 of Lakeshore Model 336.
+        """

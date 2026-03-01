@@ -11,7 +11,7 @@ from .parameter_base import ParamDataType, ParameterBase, ParamRawDataType
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping, Sequence
 
-    from qcodes.instrument.base import InstrumentBase
+    from qcodes.instrument import InstrumentBase
 
     from .parameter import Parameter
 
@@ -79,6 +79,7 @@ class DelegateGroup(Group):
             parameter.
         formatter: Optional formatter for value returned by get_parameters(),
             defaults to a namedtuple with the parameter names as keys.
+
     """
 
     def __init__(
@@ -108,7 +109,7 @@ class DelegateGroup(Group):
             self._formatter = formatter
 
     def _namedtuple(self, *args: Any, **kwargs: Any) -> tuple[Any, ...]:
-        return namedtuple(self.name, self._parameter_names)(*args, **kwargs)
+        return namedtuple(self.name, self._parameter_names)(*args, **kwargs)  # noqa: PYI024
 
     def set(self, value: ParamDataType | Mapping[str, ParamDataType]) -> None:
         if self._set_fn is not None:
@@ -161,6 +162,7 @@ class GroupedParameter(ParameterBase):
         unit: The unit of measure. Use ``''`` for unitless.
         label: Optional label, defaults to parameter name.
         default set method(s).
+
     """
 
     def __init__(
@@ -205,6 +207,7 @@ class GroupedParameter(ParameterBase):
 
         Returns:
             float: Returns the parameter value
+
         """
         self.group.set(value)
 

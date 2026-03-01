@@ -50,7 +50,7 @@ class DacReader:
             )
 
         frac = (volt - self.min_val) / (self.max_val - self.min_val)
-        val = int(round(frac * 65535))
+        val = round(frac * 65535)
         # extra check to be absolutely sure that the instrument does nothing
         # receive an out-of-bounds value
         if val > 65535 or val < 0:
@@ -103,6 +103,7 @@ class DacReader:
 
             versa_eeprom(bool): do we want to read from the versadac
             (slot) EEPROM
+
         """
         # Check if we actually have anything to query
         if count == 0:
@@ -151,6 +152,7 @@ class DacReader:
 
             versa_eeprom(bool): do we want to read
              from the versadac (slot) EEPROM
+
         """
         # Validate address
         addr = int(addr)
@@ -232,7 +234,7 @@ class HarvardDecadacChannel(InstrumentChannel, DacReader):
             set_cmd=self._set_dac,
             set_parser=self._dac_v_to_code,
             vals=self._volt_val,
-            label=f"channel {channel+self._slot*4}",
+            label=f"channel {channel + self._slot * 4}",
             unit="V",
         )
         """Parameter volt"""
@@ -495,6 +497,7 @@ class HarvardDecadac(VisaInstrument, DacReader):
         _ramp_state (bool): If True, ramp state is ON. Default False.
 
         _ramp_time (int): The ramp time in ms. Default 100 ms.
+
     """
 
     DAC_CHANNEL_CLASS = HarvardDecadacChannel
@@ -539,7 +542,7 @@ class HarvardDecadac(VisaInstrument, DacReader):
         for i in range(5):  # Create the 6 DAC slots
             slots.append(self.DAC_SLOT_CLASS(self, f"Slot{i}", i, min_val, max_val))
             slot_channels = slots[i].channels
-            slot_channels = cast(ChannelList, slot_channels)
+            slot_channels = cast("ChannelList", slot_channels)
             channels.extend(slot_channels)
         self.add_submodule("slots", slots.to_channel_tuple())
         self.add_submodule("channels", channels.to_channel_tuple())
@@ -553,6 +556,7 @@ class HarvardDecadac(VisaInstrument, DacReader):
 
         Args:
             volt(float): The voltage to set all gates to.
+
         """
         for chan in self.channels:
             chan.volt.set(volt)
@@ -568,6 +572,7 @@ class HarvardDecadac(VisaInstrument, DacReader):
             volt(float): The voltage to ramp all channels to.
 
             ramp_rate(float): The rate in volts per second to ramp
+
         """
         # Start all channels ramping
         for chan in self.channels:
@@ -586,6 +591,7 @@ class HarvardDecadac(VisaInstrument, DacReader):
 
         Returns:
             A dict containing a serial and hardware version
+
         """
         self._feature_detect()
 
@@ -600,6 +606,7 @@ class HarvardDecadac(VisaInstrument, DacReader):
             idn_param: Unused
             begin_time: time.time() when init started.
                 Default is self._t0, set at start of Instrument.__init__.
+
         """
         # start with an empty dict, just in case an instrument doesn't
         # heed our request to return all 4 fields.

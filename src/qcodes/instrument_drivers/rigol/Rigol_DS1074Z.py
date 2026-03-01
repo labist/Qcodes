@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING
 
 import numpy as np
+import numpy.typing as npt
 
 from qcodes.instrument import (
     ChannelList,
@@ -56,7 +57,7 @@ class RigolDS1074ZChannel(InstrumentChannel):
         )
         """Parameter trace"""
 
-    def _get_full_trace(self) -> np.ndarray:
+    def _get_full_trace(self) -> npt.NDArray:
         y_ori = self.root_instrument.waveform_yorigin()
         y_increm = self.root_instrument.waveform_yincrem()
         y_ref = self.root_instrument.waveform_yref()
@@ -65,7 +66,7 @@ class RigolDS1074ZChannel(InstrumentChannel):
         full_data = np.multiply(y_raw_shifted, y_increm)
         return full_data
 
-    def _get_raw_trace(self) -> np.ndarray:
+    def _get_raw_trace(self) -> npt.NDArray:
         # set the out type from oscilloscope channels to WORD
         self.root_instrument.write(":WAVeform:FORMat WORD")
 
@@ -88,6 +89,7 @@ class RigolDS1074Z(VisaInstrument):
         address: VISA address of the instrument.
         timeout: Seconds to allow for responses.
         terminator: terminator for SCPI commands.
+
     """
 
     default_terminator = "\n"
@@ -221,7 +223,7 @@ class RigolDS1074Z(VisaInstrument):
 
         self.connect_message()
 
-    def _get_time_axis(self) -> np.ndarray:
+    def _get_time_axis(self) -> npt.NDArray:
         xorigin = self.waveform_xorigin()
         xincrem = self.waveform_xincrem()
         npts = self.waveform_npoints()

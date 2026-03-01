@@ -11,6 +11,7 @@ import pyvisa.resources
 from pytest import FixtureRequest
 
 from qcodes.instrument import Instrument, VisaInstrument
+from qcodes.instrument_drivers.AimTTi import AimTTiPL601
 from qcodes.instrument_drivers.american_magnetics import AMIModel430
 from qcodes.validators import Numbers
 
@@ -66,7 +67,7 @@ class MockVisaHandle(pyvisa.resources.MessageBasedResource):
     ) -> int:
         if self.closed:
             raise RuntimeError("Trying to write to a closed instrument")
-        num = float(message.split(":")[-1])
+        num = float(message.rsplit(":", maxsplit=1)[-1])
         self.state = num
 
         if num < 0:
@@ -147,9 +148,12 @@ def test_visa_gc_closes_connection(caplog) -> None:
     # and the instrument should no longer be in the instrument registry
     assert len(Instrument._all_instruments) == 0
     assert len(rm.list_opened_resources()) == 0
-    assert (
-        caplog.records[-1].message == "Closing VISA handle to x as there are no non "
-        "weak references to the instrument."
+    # the order of the log messages depends on the pyvisa version but regardless
+    # of which version we should see the message about closing the handle
+    assert any(
+        record.message
+        == "Closing VISA handle to x as there are no non weak references to the instrument."
+        for record in caplog.records
     )
 
 
@@ -240,8 +244,6 @@ def test_both_visahandle_and_pyvisa_sim_file_raises() -> None:
 
 
 def test_load_pyvisa_sim_file_implict_module(request: FixtureRequest) -> None:
-    from qcodes.instrument_drivers.AimTTi import AimTTiPL601
-
     driver = AimTTiPL601(
         "AimTTi", address="GPIB::1::INSTR", pyvisa_sim_file="AimTTi_PL601P.yaml"
     )
@@ -255,8 +257,6 @@ def test_load_pyvisa_sim_file_implict_module(request: FixtureRequest) -> None:
 
 
 def test_load_pyvisa_sim_file_explicit_module(request: FixtureRequest) -> None:
-    from qcodes.instrument_drivers.AimTTi import AimTTiPL601
-
     driver = AimTTiPL601(
         "AimTTi",
         address="GPIB::1::INSTR",
@@ -272,8 +272,6 @@ def test_load_pyvisa_sim_file_explicit_module(request: FixtureRequest) -> None:
 
 
 def test_load_pyvisa_sim_file_invalid_file_raises(request: FixtureRequest) -> None:
-    from qcodes.instrument_drivers.AimTTi import AimTTiPL601
-
     with pytest.raises(
         FileNotFoundError,
         match=re.escape(
@@ -288,8 +286,6 @@ def test_load_pyvisa_sim_file_invalid_file_raises(request: FixtureRequest) -> No
 
 
 def test_load_pyvisa_sim_file_invalid_module_raises(request: FixtureRequest) -> None:
-    from qcodes.instrument_drivers.AimTTi import AimTTiPL601
-
     with pytest.raises(
         ModuleNotFoundError,
         match=re.escape("No module named 'qcodes.instrument.not_a_module'"),

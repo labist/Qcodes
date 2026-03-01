@@ -34,7 +34,7 @@ import jsonschema.exceptions
 import qcodes
 import qcodes.instrument_drivers
 from qcodes import validators
-from qcodes.instrument.base import Instrument, InstrumentBase
+from qcodes.instrument import Instrument, InstrumentBase
 from qcodes.instrument.channel import ChannelTuple
 from qcodes.metadatable import Metadatable, MetadatableWithName
 from qcodes.monitor.monitor import Monitor
@@ -208,6 +208,7 @@ class Station(Metadatable, DelegateAttributes):
 
         Returns:
             dict: Base snapshot.
+
         """
         snap: dict[str, Any] = {
             "instruments": {},
@@ -256,6 +257,7 @@ class Station(Metadatable, DelegateAttributes):
         Returns:
             str: The name assigned this component, which may have been changed
                 to make it unique among previously added components.
+
         """
         try:
             if not (isinstance(component, Parameter) and component.snapshot_exclude):
@@ -287,6 +289,7 @@ class Station(Metadatable, DelegateAttributes):
         Raises:
             KeyError: If a component with the given name is not part of this
                 station.
+
         """
         try:
             return self.components.pop(name)
@@ -312,6 +315,7 @@ class Station(Metadatable, DelegateAttributes):
         Raises:
             KeyError: If a component with the given name is not part of this
                 station.
+
         """
 
         def find_component(
@@ -380,7 +384,7 @@ class Station(Metadatable, DelegateAttributes):
             return None
         search_list = [filename]
         if not os.path.isabs(filename) and get_config_default_folder() is not None:
-            config_folder = cast(str, get_config_default_folder())
+            config_folder = cast("str", get_config_default_folder())
             search_list += [os.path.join(config_folder, filename)]
         for p in search_list:
             if os.path.isfile(p):
@@ -491,7 +495,7 @@ class Station(Metadatable, DelegateAttributes):
 
         # Load template schema, and thereby don't fail on instruments that are
         # not included in the user schema.
-        import ruamel.yaml  # lazy import
+        import ruamel.yaml
 
         yaml = ruamel.yaml.YAML().load(config)
         with open(SCHEMA_TEMPLATE_PATH) as f:
@@ -546,6 +550,7 @@ class Station(Metadatable, DelegateAttributes):
                 of the instrument as it is added to the Station.
             **kwargs: Additional keyword arguments that get passed on to the
                 ``__init__``-method of the instrument to be added.
+
         """
         # try to revive the instrument
         if revive_instance and Instrument.exist(identifier):
@@ -764,6 +769,7 @@ class Station(Metadatable, DelegateAttributes):
 
         Returns:
             The names of the loaded instruments
+
         """
         config = self.config
         if config is None:
@@ -846,7 +852,7 @@ def update_config_schema(
 
     additional_instrument_modules = additional_instrument_modules or []
     instrument_modules: set[ModuleType] = set(
-        [qcodes.instrument_drivers] + additional_instrument_modules
+        [qcodes.instrument_drivers, *additional_instrument_modules]
     )
 
     instrument_names = tuple(
@@ -872,8 +878,9 @@ def _merge_yamls(*yamls: str | Path) -> str:
     Returns:
         Full yaml file stored in the memory. Returns an empty string
         if no files are given.
+
     """
-    import ruamel.yaml  # lazy import
+    import ruamel.yaml
 
     if len(yamls) == 0:
         return ""
@@ -903,7 +910,7 @@ def _merge_yamls(*yamls: str | Path) -> str:
             else:
                 raise KeyError(
                     f"duplicate key `{entry}` detected among files:"
-                    f"{ ','.join(map(str, yamls))}"
+                    f"{','.join(map(str, yamls))}"
                 )
         deq.popleft()
     assert data1 is not None

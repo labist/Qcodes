@@ -5,12 +5,11 @@ from functools import partial
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import numpy.typing as npt
 from packaging import version
-from typing_extensions import deprecated
 
 import qcodes.validators as vals
 from qcodes.instrument import (
-    Instrument,
     InstrumentBaseKWArgs,
     InstrumentChannel,
     VisaInstrument,
@@ -21,17 +20,16 @@ from qcodes.instrument_drivers.Keysight.private.error_handling import (
 )
 from qcodes.parameters import Parameter, ParameterWithSetpoints
 from qcodes.utils import (
-    QCoDeSDeprecationWarning,
     convert_legacy_version_to_supported_version,
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
     from typing_extensions import Unpack
 
 
-class Keysight344xxATrigger(InstrumentChannel):
+class Keysight344xxATrigger(InstrumentChannel["Keysight344xxA"]):
     """Implements triggering parameters and methods of Keysight 344xxA."""
 
     def __init__(
@@ -228,7 +226,7 @@ class Keysight344xxATrigger(InstrumentChannel):
         self.write("*TRG")
 
 
-class Keysight344xxASample(InstrumentChannel):
+class Keysight344xxASample(InstrumentChannel["Keysight344xxA"]):
     """Implements sampling parameters of Keysight 344xxA."""
 
     def __init__(
@@ -426,7 +424,7 @@ for every measurement (not multiple ranges, just one range up or
 down per measurement)."""
 
 
-class Keysight344xxADisplay(InstrumentChannel):
+class Keysight344xxADisplay(InstrumentChannel["Keysight344xxA"]):
     """Implements interaction with the display of Keysight 344xxA."""
 
     def __init__(
@@ -495,15 +493,14 @@ achieved by calling `display.clear`."""
         self.text.get()  # also update the parameter value
 
 
-class TimeTrace(ParameterWithSetpoints):
+class TimeTrace(ParameterWithSetpoints[npt.NDArray[np.float64], "Keysight344xxA"]):
     """
     A parameter class that holds the data for a time trace type measurement,
     i.e. a measurement of N voltage or current values measured at fixed time
     intervals
     """
 
-    def __init__(self, name: str, instrument: Instrument, **kwargs: Any):
-        self.instrument: Instrument
+    def __init__(self, name: str, instrument: "Keysight344xxA", **kwargs: Any):
         super().__init__(name=name, instrument=instrument, **kwargs)
 
         # the extra time needed to avoid timeouts during acquisition
@@ -517,6 +514,7 @@ class TimeTrace(ParameterWithSetpoints):
         Raises:
             RuntimeError: If the present measurement settings prevent reaching
                 the specified dt.
+
         """
 
         minimum_time = self.instrument.sample.timer_minimum()
@@ -547,7 +545,7 @@ class TimeTrace(ParameterWithSetpoints):
         conf = self.instrument.sense_function()
         self.unit, self.label = units_and_labels[conf]
 
-    def _acquire_time_trace(self) -> np.ndarray:
+    def _acquire_time_trace(self) -> npt.NDArray[np.float64]:
         """
         The function that prepares the measurement and fetches the data
         """
@@ -559,30 +557,25 @@ class TimeTrace(ParameterWithSetpoints):
             self._acquire_timeout_fudge_factor * meas_time, self.instrument.timeout()
         )
 
-        param_settings = [
-            (self.instrument.trigger.count, 1),
-            (self.instrument.trigger.source, "BUS"),
-            (self.instrument.sample.source, "TIM"),
-            (self.instrument.sample.timer, dt),
-            (self.instrument.sample.count, npts),
-            (self.instrument.timeout, new_timeout),
-            (self.instrument.display.text, disp_text),
-        ]
-
-        if self.instrument.has_DIG:
-            param_settings.append((self.instrument.sample.pretrigger_count, 0))
-
         with ExitStack() as stack:
-            for ps in param_settings:
-                stack.enter_context(ps[0].set_to(ps[1]))
+            stack.enter_context(self.instrument.trigger.count.set_to(1))
+            stack.enter_context(self.instrument.trigger.source.set_to("BUS"))
+            stack.enter_context(self.instrument.sample.source.set_to("TIM"))
+            stack.enter_context(self.instrument.sample.timer.set_to(dt))
+            stack.enter_context(self.instrument.sample.count.set_to(npts))
+            stack.enter_context(self.instrument.timeout.set_to(new_timeout))
+            stack.enter_context(self.instrument.display.text.set_to(disp_text))
+
+            if self.instrument.has_DIG:
+                stack.enter_context(self.instrument.sample.pretrigger_count.set_to(0))
 
             self.instrument.init_measurement()
             self.instrument.trigger.force()
             data = self.instrument.fetch()
 
-        return data  # pyright: ignore[reportPossiblyUnboundVariable]
+        return data
 
-    def get_raw(self) -> np.ndarray:
+    def get_raw(self) -> npt.NDArray[np.float64]:
         self._validate_dt()
         self._set_units_and_labels()
         data = self._acquire_time_trace()
@@ -596,7 +589,7 @@ class TimeAxis(Parameter):
     measurement start) at which the points of the time trace were acquired.
     """
 
-    def get_raw(self) -> np.ndarray:
+    def get_raw(self) -> npt.NDArray:
         """
         Construct a time axis by querying the number of points and step size
         from the instrument.
@@ -641,6 +634,7 @@ class Keysight344xxA(KeysightErrorQueueMixin, VisaInstrument):
             silent: If True, the connect_message of the instrument
                 is suppressed. Default: False
             **kwargs: kwargs are forwarded to base class.
+
         """
 
         super().__init__(name, address, **kwargs)
@@ -746,7 +740,7 @@ class Keysight344xxA(KeysightErrorQueueMixin, VisaInstrument):
 
         self.NPLC: Parameter = self.add_parameter(
             "NPLC",
-            get_cmd="SENSe:VOLTage:DC:NPLC?",
+            get_cmd=self._get_with_sense_function("NPLC"),
             get_parser=float,
             set_cmd=self._set_NPLC,
             vals=vals.Enum(*self.NPLC_list),
@@ -834,8 +828,8 @@ the resolution values."""
         self.autorange: Parameter = self.add_parameter(
             "autorange",
             label="Autorange",
-            set_cmd="SENSe:VOLTage:DC:RANGe:AUTO {}",
-            get_cmd="SENSe:VOLTage:DC:RANGe:AUTO?",
+            set_cmd=self._set_with_sense_function("RANGe:AUTO"),
+            get_cmd=self._get_with_sense_function("RANGe:AUTO"),
             val_mapping={"ON": 1, "OFF": 0},
             vals=vals.Enum("ON", "OFF"),
         )
@@ -844,8 +838,8 @@ the resolution values."""
         self.autozero: Parameter = self.add_parameter(
             "autozero",
             label="Autozero",
-            set_cmd="SENSe:VOLTage:DC:ZERO:AUTO {}",
-            get_cmd="SENSe:VOLTage:DC:ZERO:AUTO?",
+            set_cmd=self._set_with_sense_function("ZERO:AUTO"),
+            get_cmd=self._get_with_sense_function("ZERO:AUTO"),
             val_mapping={"ON": 1, "OFF": 0, "ONCE": "ONCE"},
             vals=vals.Enum("ON", "OFF", "ONCE"),
             docstring=textwrap.dedent(
@@ -930,8 +924,8 @@ the resolution values."""
             self.aperture_mode: Parameter = self.add_parameter(
                 "aperture_mode",
                 label="Aperture mode",
-                set_cmd="SENSe:VOLTage:DC:APERture:ENABled {}",
-                get_cmd="SENSe:VOLTage:DC:APERture:ENABled?",
+                set_cmd=self._set_with_sense_function("APERture:ENABled"),
+                get_cmd=self._get_with_sense_function("APERture:ENABled"),
                 val_mapping={"ON": 1, "OFF": 0},
                 vals=vals.Enum("ON", "OFF"),
                 docstring=textwrap.dedent(
@@ -951,7 +945,7 @@ mode is disabled (default), the integration time is set in PLC
                 "aperture_time",
                 label="Aperture time",
                 set_cmd=self._set_apt_time,
-                get_cmd="SENSe:VOLTage:DC:APERture?",
+                get_cmd=self._get_with_sense_function("APERture"),
                 get_parser=float,
                 vals=vals.Numbers(*apt_times[self.model]),
                 docstring=textwrap.dedent(
@@ -980,9 +974,18 @@ mode."""
         ####################################
         # Submodules
 
-        self.add_submodule("display", Keysight344xxADisplay(self, "display"))
-        self.add_submodule("trigger", Keysight344xxATrigger(self, "trigger"))
-        self.add_submodule("sample", Keysight344xxASample(self, "sample"))
+        self.display: Keysight344xxADisplay = self.add_submodule(
+            "display", Keysight344xxADisplay(self, "display")
+        )
+        """Instrument module display"""
+        self.trigger: Keysight344xxATrigger = self.add_submodule(
+            "trigger", Keysight344xxATrigger(self, "trigger")
+        )
+        """Instrument module trigger"""
+        self.sample: Keysight344xxASample = self.add_submodule(
+            "sample", Keysight344xxASample(self, "sample")
+        )
+        """Instrument module sample"""
 
         ####################################
         # Measurement Parameters
@@ -1165,6 +1168,7 @@ mode."""
 
         Returns:
             The float value of the parameter.
+
         """
         with self.sense_function.set_to(sense_function):
             with self.sample.count.set_to(1):
@@ -1177,7 +1181,7 @@ mode."""
 
         return float(response)
 
-    def fetch(self) -> np.ndarray:
+    def fetch(self) -> npt.NDArray[np.float64]:
         """
         Waits for measurements to complete and copies all available
         measurements to the instrument's output buffer. The readings remain
@@ -1189,11 +1193,12 @@ mode."""
         Returns:
             a 1D numpy array of all measured values that are currently in the
             reading memory
+
         """
         raw_vals: str = self.ask("FETCH?")
         return _raw_vals_to_array(raw_vals)
 
-    def read(self) -> np.ndarray:
+    def read(self) -> npt.NDArray[np.float64]:
         """
         Starts a new set of measurements, waits for all measurements to
         complete, and transfers all available measurements.
@@ -1203,18 +1208,47 @@ mode."""
 
         Returns:
             a 1D numpy array of all measured values
+
         """
         raw_vals: str = self.ask("READ?")
         return _raw_vals_to_array(raw_vals)
 
+    def _ask_with_sense_function(self, cmd: str) -> str:
+        # cache.raw_value currently lacks a way to trigger an update
+        # force this by calling get on the cache first which will trigger
+        # the update if required
+        self.sense_function.cache.get(get_if_invalid=True)
+        function = self.sense_function.cache.raw_value.strip('"')
+        return self.ask(f"SENSe:{function}:{cmd}?")
+
+    def _write_with_sense_function(self, cmd: str, value: str) -> None:
+        # cache.raw_value currently lacks a way to trigger an update
+        # force this by calling get on the cache first which will trigger
+        # the update if required
+        self.sense_function.cache.get(get_if_invalid=True)
+        function = self.sense_function.cache.raw_value.strip('"')
+        self.write(f"SENSe:{function}:{cmd} {value}")
+
+    def _get_with_sense_function(self, cmd: str) -> "Callable[[], str]":
+        def func() -> str:
+            return self._ask_with_sense_function(cmd)
+
+        return func
+
+    def _set_with_sense_function(self, cmd: str) -> "Callable[[str], None]":
+        def func(value: str) -> None:
+            self._write_with_sense_function(cmd, value)
+
+        return func
+
     def _set_apt_time(self, value: float) -> None:
-        self.write(f"SENSe:VOLTage:DC:APERture {value:f}")
+        self._write_with_sense_function("APERture", f"{value:f}")
 
         # setting aperture time switches aperture mode ON
         self.aperture_mode.get()
 
     def _set_NPLC(self, value: float) -> None:
-        self.write(f"SENSe:VOLTage:DC:NPLC {value:f}")
+        self._write_with_sense_function("NPLC", f"{value:f}")
 
         # resolution settings change with NPLC
         self.resolution.get()
@@ -1314,39 +1348,7 @@ mode."""
             self.range(self.ranges[0])
 
 
-@deprecated(
-    "Base class for Keysight 344xxA renamed Keysight344xxA",
-    category=QCoDeSDeprecationWarning,
-)
-class _Keysight_344xxA(Keysight344xxA):
-    pass
-
-
-@deprecated(
-    "Trigger class for Keysight 344xxA renamed Keysight344xxATrigger",
-    category=QCoDeSDeprecationWarning,
-)
-class Trigger(Keysight344xxATrigger):
-    pass
-
-
-@deprecated(
-    "Sample class for Keysight 344xxA renamed Keysight344xxASample",
-    category=QCoDeSDeprecationWarning,
-)
-class Sample(Keysight344xxASample):
-    pass
-
-
-@deprecated(
-    "Display class for Keysight 344xxA renamed Keysight344xxADisplay",
-    category=QCoDeSDeprecationWarning,
-)
-class Display(Keysight344xxADisplay):
-    pass
-
-
-def _raw_vals_to_array(raw_vals: str) -> np.ndarray:
+def _raw_vals_to_array(raw_vals: str) -> npt.NDArray[np.float64]:
     """
     Helper function that converts comma-delimited string of floating-point
     values to a numpy 1D array of them. Most data retrieval command of these
@@ -1358,6 +1360,7 @@ def _raw_vals_to_array(raw_vals: str) -> np.ndarray:
 
     Returns:
         numpy 1D array of data
+
     """
     result_array = np.fromstring(raw_vals, dtype=float, sep=",")
     result_array[result_array >= 9.9e37] = np.inf

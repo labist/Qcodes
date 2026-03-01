@@ -28,6 +28,7 @@ class InstrumentGroup(InstrumentBase):
             values to set on those parameters when loading this instrument.
         set_initial_values_on_load: Set default values on load. Defaults to
             False.
+
     """
 
     def __init__(
@@ -43,7 +44,7 @@ class InstrumentGroup(InstrumentBase):
         super().__init__(name=name, **kwargs)
 
         module_name = ".".join(submodules_type.split(".")[:-1])
-        instr_class_name = submodules_type.split(".")[-1]
+        instr_class_name = submodules_type.rsplit(".", maxsplit=1)[-1]
         module = importlib.import_module(module_name)
         instr_class = getattr(module, instr_class_name)
 

@@ -1,6 +1,6 @@
 from typing import Protocol
 
-from qcodes.instrument.base import InstrumentProtocol
+from qcodes.instrument.instrument import InstrumentProtocol
 
 
 class KeysightErrorProtocol(InstrumentProtocol, Protocol):
@@ -31,6 +31,7 @@ class KeysightErrorQueueMixin:
 
         Returns:
             The error code and the error message.
+
         """
         rawmssg = self.ask("SYSTem:ERRor?")
         code = int(rawmssg.split(",")[0])
@@ -45,6 +46,7 @@ class KeysightErrorQueueMixin:
         Args:
             verbose: If true, the error messages are printed.
                 Default: True.
+
         """
 
         self.log.debug("Flushing error queue...")

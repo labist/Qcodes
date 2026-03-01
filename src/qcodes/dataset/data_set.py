@@ -13,7 +13,9 @@ from threading import Thread
 from typing import TYPE_CHECKING, Any, Literal
 
 import numpy
+import numpy.typing as npt
 from tqdm.auto import trange
+from typing_extensions import deprecated
 
 import qcodes
 from qcodes.dataset.data_set_protocol import (
@@ -23,7 +25,7 @@ from qcodes.dataset.data_set_protocol import (
     DataSetProtocol,
     ParameterData,
     SpecsOrInterDeps,
-    values_type,
+    ValuesType,
 )
 from qcodes.dataset.descriptions.dependencies import InterDependencies_
 from qcodes.dataset.descriptions.rundescriber import RunDescriber
@@ -35,7 +37,11 @@ from qcodes.dataset.export_config import (
 )
 from qcodes.dataset.guids import filter_guids_by_parts, generate_guid, parse_guid
 from qcodes.dataset.linked_datasets.links import Link, links_to_str, str_to_links
-from qcodes.dataset.sqlite.connection import ConnectionPlus, atomic, atomic_transaction
+from qcodes.dataset.sqlite.connection import (
+    AtomicConnection,
+    atomic,
+    atomic_transaction,
+)
 from qcodes.dataset.sqlite.database import (
     conn_from_dbpath_or_conn,
     connect,
@@ -79,6 +85,7 @@ from qcodes.dataset.sqlite.query_helpers import (
 from qcodes.utils import (
     NumpyJSONEncoder,
 )
+from qcodes.utils.deprecate import QCoDeSDeprecationWarning
 
 from .data_set_cache import DataSetCacheWithDBBackend
 from .data_set_in_memory import DataSetInMem, load_from_file
@@ -90,8 +97,9 @@ from .exporters.export_to_pandas import (
     load_to_dataframe_dict,
 )
 from .exporters.export_to_xarray import (
-    load_to_xarray_dataarray_dict,
+    load_to_xarray_dataarray_dict,  # pyright: ignore[reportDeprecated]
     load_to_xarray_dataset,
+    load_to_xarray_dataset_dict,
     xarray_to_h5netcdf_with_complex_numbers,
 )
 from .subscriber import _Subscriber
@@ -102,33 +110,33 @@ if TYPE_CHECKING:
     import pandas as pd
     import xarray as xr
 
-    from qcodes.dataset.descriptions.param_spec import ParamSpec, ParamSpecBase
+    from qcodes.dataset.descriptions.param_spec import ParamSpec
     from qcodes.dataset.descriptions.versioning.rundescribertypes import Shapes
-    from qcodes.parameters import ParameterBase
+    from qcodes.parameters import ParameterBase, ParamSpecBase
 
 
 log = logging.getLogger(__name__)
 
 
 # TODO: storing parameters in separate table as an extension (dropping
-# the column parametenrs would be much nicer
+# the column parameters would be much nicer
 
 # TODO: metadata split between well known columns and maybe something else is
 # not such a good idea. The problem is if we allow for specific columns then
-# how do the user/us know which are metatadata?  I THINK the only sane solution
+# how do the user/us know which are metadata?  I THINK the only sane solution
 # is to store JSON in a column called metadata
 
-# TODO: fixix  a subset of metadata that we define well known (and create them)
+# TODO: fixing  a subset of metadata that we define well known (and create them)
 # i.e. no dynamic creation of metadata columns, but add stuff to
 # a json inside a 'metadata' column
 
 
 class _BackgroundWriter(Thread):
     """
-    Write the results from the DataSet's dataqueue in a new thread
+    Write the results from the DataSet's data queue in a new thread
     """
 
-    def __init__(self, queue: Queue[Any], conn: ConnectionPlus):
+    def __init__(self, queue: Queue[Any], conn: AtomicConnection):
         super().__init__(daemon=True)
         self.queue = queue
         self.path = conn.path_to_dbfile
@@ -206,7 +214,7 @@ class DataSet(BaseDataSet):
         self,
         path_to_db: str | None = None,
         run_id: int | None = None,
-        conn: ConnectionPlus | None = None,
+        conn: AtomicConnection | None = None,
         exp_id: int | None = None,
         name: str | None = None,
         specs: SpecsOrInterDeps | None = None,
@@ -214,6 +222,7 @@ class DataSet(BaseDataSet):
         metadata: Mapping[str, Any] | None = None,
         shapes: Shapes | None = None,
         in_memory_cache: bool = True,
+        read_only: bool = False,
     ) -> None:
         """
         Create a new :class:`.DataSet` object. The object can either hold a new run or
@@ -246,9 +255,18 @@ class DataSet(BaseDataSet):
                 Ignored if ``run_id`` is provided.
             in_memory_cache: Should measured data be keep in memory
                 and available as part of the `dataset.cache` object.
+            read_only: whether to open the connection in read-only mode.
+                Only takes effect if `conn` is not given.
 
         """
-        self.conn = conn_from_dbpath_or_conn(conn, path_to_db)
+        if run_id is None and conn is None and read_only:
+            # raise valueerror here because if no run id, a new dataset will be created
+            # and it will be written to the database
+            raise ValueError(
+                "Cannot instantiate a dataset in read-only mode without a run_id provided"
+                " since a new dataset will be created."
+            )
+        self.conn = conn_from_dbpath_or_conn(conn, path_to_db, read_only=read_only)
 
         self._debug = False
         self.subscribers: dict[str, _Subscriber] = {}
@@ -329,7 +347,7 @@ class DataSet(BaseDataSet):
         parent_datasets: Sequence[Mapping[Any, Any]] = (),
         write_in_background: bool = False,
     ) -> None:
-        self.add_snapshot(json.dumps({"station": snapshot}, cls=NumpyJSONEncoder))
+        self.add_snapshot(json.dumps(snapshot, cls=NumpyJSONEncoder))
 
         if interdeps == InterDependencies_():
             raise RuntimeError("No parameters supplied")
@@ -495,11 +513,11 @@ class DataSet(BaseDataSet):
 
         Args:
             links: The links to assign to this dataset
+
         """
         if not self.pristine:
             raise RuntimeError(
-                "Can not set parent dataset links on a dataset "
-                "that has been started."
+                "Can not set parent dataset links on a dataset that has been started."
             )
 
         if not all(isinstance(link, Link) for link in links):
@@ -548,7 +566,10 @@ class DataSet(BaseDataSet):
         self.conn = connect(path_to_db, self._debug)
 
     def set_interdependencies(
-        self, interdeps: InterDependencies_, shapes: Shapes | None = None
+        self,
+        interdeps: InterDependencies_,
+        shapes: Shapes | None = None,
+        override: bool = False,
     ) -> None:
         """
         Set the interdependencies object (which holds all added
@@ -561,7 +582,7 @@ class DataSet(BaseDataSet):
                 f"Wrong input type. Expected InterDepencies_, got {type(interdeps)}"
             )
 
-        if not self.pristine:
+        if not self.pristine and not override:
             mssg = "Can not set interdependencies on a DataSet that has been started."
             raise RuntimeError(mssg)
         self._rundescriber = RunDescriber(interdeps, shapes=shapes)
@@ -570,16 +591,16 @@ class DataSet(BaseDataSet):
         """
         Adds metadata to the :class:`.DataSet`. The metadata is stored under the
         provided tag. Note that None is not allowed as a metadata value, and the
-        tag has to be a valid python identified (e.g. containing alphanumeric
+        tag has to be a valid python identifier (e.g. containing alphanumeric
         characters and underscores).
 
         Args:
             tag: represents the key in the metadata dictionary
             metadata: actual metadata
+
         """
 
         self._metadata[tag] = metadata
-
         # `add_data_to_dynamic_columns` is not atomic by itself, hence using `atomic`
         with atomic(self.conn) as conn:
             add_data_to_dynamic_columns(conn, self.run_id, {tag: metadata})
@@ -593,6 +614,7 @@ class DataSet(BaseDataSet):
         Args:
             snapshot: the raw JSON dump of the snapshot
             overwrite: force overwrite an existing snapshot
+
         """
         if self.snapshot is None or overwrite:
             with atomic(self.conn) as conn:
@@ -608,7 +630,7 @@ class DataSet(BaseDataSet):
         """
         Is this :class:`.DataSet` pristine? A pristine :class:`.DataSet` has not yet been started,
         meaning that parameters can still be added and removed, but results
-        can not be added.
+        cannot be added.
         """
         return not (self._started or self._completed)
 
@@ -623,7 +645,7 @@ class DataSet(BaseDataSet):
     @property
     def started(self) -> bool:
         """
-        Has this :class:`.DataSet` been started? A :class:`.DataSet` not started can not have any
+        Has this :class:`.DataSet` been started? A :class:`.DataSet` not started cannot have any
         results added to it.
         """
         return self._started
@@ -652,6 +674,7 @@ class DataSet(BaseDataSet):
         Args:
             start_bg_writer: If True, the add_results method will write to the
                 database in a separate thread.
+
         """
         if not self._started:
             self._perform_start_actions(start_bg_writer=start_bg_writer)
@@ -705,14 +728,13 @@ class DataSet(BaseDataSet):
 
     def mark_completed(self) -> None:
         """
-        Mark :class:`.DataSet` as complete and thus read only and notify the subscribers
+        Mark :class:`.DataSet` as complete and thus read-only and notify the subscribers
         """
         if self.completed:
             return
         if self.pristine:
             raise RuntimeError(
-                "Can not mark DataSet as complete before it "
-                "has been marked as started."
+                "Can not mark DataSet as complete before it has been marked as started."
             )
 
         self._perform_completion_actions()
@@ -740,6 +762,7 @@ class DataSet(BaseDataSet):
         the name of a parameter in this :class:`.DataSet`.
 
         It is an error to add results to a completed :class:`.DataSet`.
+
         """
 
         self._raise_if_not_writable()
@@ -822,7 +845,7 @@ class DataSet(BaseDataSet):
         If provided, the start and end arguments select a range of results
         by result count (index). If the range is empty - that is, if the end is
         less than or equal to the start, or if start is after the current end
-        of the :class:`.DataSet` – then a list of empty arrays is returned.
+        of the :class:`.DataSet` - then a list of empty arrays is returned.
 
         Args:
             *params: string parameter names, QCoDeS Parameter objects, and
@@ -840,11 +863,13 @@ class DataSet(BaseDataSet):
             Dictionary from requested parameters to Dict of parameter names
             to numpy arrays containing the data points of type numeric,
             array or string.
+
         """
         if len(params) == 0:
             valid_param_names = [
-                ps.name for ps in self._rundescriber.interdeps.non_dependencies
+                ps.name for ps in self._rundescriber.interdeps.top_level_parameters
             ]
+
         else:
             valid_param_names = self._validate_parameters(*params)
         return get_parameter_data(
@@ -874,7 +899,7 @@ class DataSet(BaseDataSet):
         If provided, the start and end arguments select a range of results
         by result count (index). If the range is empty - that is, if the end is
         less than or equal to the start, or if start is after the current end
-        of the :class:`.DataSet` – then a dict of empty :py:class:`pandas.DataFrame` s is
+        of the :class:`.DataSet` - then a dict of empty :py:class:`pandas.DataFrame` s is
         returned.
 
         Args:
@@ -892,9 +917,10 @@ class DataSet(BaseDataSet):
             :py:class:`pandas.DataFrame` s with the requested parameter as
             a column and a indexed by a :py:class:`pandas.MultiIndex` formed
             by the dependencies.
+
         """
         datadict = self.get_parameter_data(*params, start=start, end=end)
-        dfs_dict = load_to_dataframe_dict(datadict)
+        dfs_dict = load_to_dataframe_dict(datadict, self.description.interdeps)
         return dfs_dict
 
     def to_pandas_dataframe(
@@ -918,7 +944,7 @@ class DataSet(BaseDataSet):
         If provided, the start and end arguments select a range of results
         by result count (index). If the range is empty - that is, if the end is
         less than or equal to the start, or if start is after the current end
-        of the :class:`.DataSet` – then a dict of empty :py:class:`pandas.DataFrame` s is
+        of the :class:`.DataSet` - then a dict of empty :py:class:`pandas.DataFrame` s is
         returned.
 
         Args:
@@ -939,10 +965,15 @@ class DataSet(BaseDataSet):
         Example:
             Return a pandas DataFrame with
                 df = ds.to_pandas_dataframe()
+
         """
         datadict = self.get_parameter_data(*params, start=start, end=end)
-        return load_to_concatenated_dataframe(datadict)
+        return load_to_concatenated_dataframe(datadict, self.description.interdeps)
 
+    @deprecated(
+        "to_xarray_dataarray_dict is deprecated, use to_xarray_dataset_dict instead",
+        category=QCoDeSDeprecationWarning,
+    )
     def to_xarray_dataarray_dict(
         self,
         *params: str | ParamSpec | ParameterBase,
@@ -963,7 +994,7 @@ class DataSet(BaseDataSet):
         If provided, the start and end arguments select a range of results
         by result count (index). If the range is empty - that is, if the end is
         less than or equal to the start, or if start is after the current end
-        of the :class:`.DataSet` – then a dict of empty :py:class:`xr.DataArray` s is
+        of the :class:`.DataSet` - then a dict of empty :py:class:`xr.DataArray` s is
         returned.
 
         The dependent parameters of the Dataset are normally used as coordinates of the
@@ -1001,9 +1032,77 @@ class DataSet(BaseDataSet):
             Return a dict of xr.DataArray with
 
                 dataarray_dict = ds.to_xarray_dataarray_dict()
+
         """
         data = self.get_parameter_data(*params, start=start, end=end)
-        datadict = load_to_xarray_dataarray_dict(
+        datadict = load_to_xarray_dataarray_dict(  # pyright: ignore[reportDeprecated]
+            self, data, use_multi_index=use_multi_index
+        )
+
+        return datadict
+
+    def to_xarray_dataset_dict(
+        self,
+        *params: str | ParamSpec | ParameterBase,
+        start: int | None = None,
+        end: int | None = None,
+        use_multi_index: Literal["auto", "always", "never"] = "auto",
+    ) -> dict[str, xr.Dataset]:
+        """
+        Returns the values stored in the :class:`.DataSet` for the specified parameters
+        and their dependencies as a dict of :py:class:`xr.DataSet` s
+        Each element in the dict is indexed by the names of the requested
+        parameters.
+
+        If no parameters are supplied data will be be
+        returned for all parameters in the :class:`.DataSet` that are not them self
+        dependencies of other parameters.
+
+        If provided, the start and end arguments select a range of results
+        by result count (index). If the range is empty - that is, if the end is
+        less than or equal to the start, or if start is after the current end
+        of the :class:`.DataSet` - then a dict of empty :py:class:`xr.Dataset` s is
+        returned.
+
+        The dependent parameters of the Dataset are normally used as coordinates of the
+        XArray dataframe. However if non unique values are found for the dependent parameter
+        values we will fall back to using an index as coordinates.
+
+        Args:
+            *params: string parameter names, QCoDeS Parameter objects, and
+                ParamSpec objects. If no parameters are supplied data for
+                all parameters that are not a dependency of another
+                parameter will be returned.
+            start: start value of selection range (by result count); ignored
+                if None
+            end: end value of selection range (by results count); ignored if
+                None
+            use_multi_index: Should the data be exported using a multi index
+                rather than regular cartesian indexes. With regular cartesian
+                coordinates, the xarray dimensions are calculated from the sets or all
+                values along the setpoint axis of the QCoDeS dataset. Any position
+                in this grid not corresponding to a measured value will be filled
+                with a placeholder (typically NaN) potentially creating a sparse
+                dataset with significant storage overhead.
+                Multi index avoids this and is therefor better
+                suited for data that is known to not be on a grid.
+                If set to "auto" multi index will be used if projecting the data onto
+                a grid requires filling non measured values with NaN  and the shapes
+                of the data has not been set in the run description.
+
+        Returns:
+            Dictionary from requested parameter names to :py:class:`xr.Dataset` s
+            with the requested parameter(s) as a column(s) and coordinates
+            formed by the dependencies.
+
+        Example:
+            Return a dict of xr.Dataset with
+
+                dataset_dict = ds.to_xarray_dataset_dict()
+
+        """
+        data = self.get_parameter_data(*params, start=start, end=end)
+        datadict = load_to_xarray_dataset_dict(
             self, data, use_multi_index=use_multi_index
         )
 
@@ -1027,7 +1126,7 @@ class DataSet(BaseDataSet):
         If provided, the start and end arguments select a range of results
         by result count (index). If the range is empty - that is, if the end is
         less than or equal to the start, or if start is after the current end
-        of the :class:`.DataSet` – then a empty :py:class:`xr.Dataset` s is
+        of the :class:`.DataSet` - then a empty :py:class:`xr.Dataset` s is
         returned.
 
         The dependent parameters of the Dataset are normally used as coordinates of the
@@ -1064,6 +1163,7 @@ class DataSet(BaseDataSet):
             Return a concatenated xr.Dataset with
 
                 xds = ds.to_xarray_dataset()
+
         """
         data = self.get_parameter_data(*params, start=start, end=end)
 
@@ -1106,6 +1206,7 @@ class DataSet(BaseDataSet):
                                  length and wanted to be merged in a single file.
             DataPathException: If the data of multiple parameters are wanted to be merged
                                in a single file but no filename provided.
+
         """
         dfdict = self.to_pandas_dataframe_dict()
         dataframe_to_csv(
@@ -1140,6 +1241,7 @@ class DataSet(BaseDataSet):
         Args:
             name: identifier of the subscriber. Equal to the key of the entry
                 in ``qcodesrc.json::subscription.subscribers``.
+
         """
         subscribers = qcodes.config.subscription.subscribers
         try:
@@ -1212,7 +1314,7 @@ class DataSet(BaseDataSet):
         return "\n".join(out)
 
     def _enqueue_results(
-        self, result_dict: Mapping[ParamSpecBase, numpy.ndarray]
+        self, result_dict: Mapping[ParamSpecBase, npt.NDArray]
     ) -> None:
         """
         Enqueue the results into self._results
@@ -1229,14 +1331,25 @@ class DataSet(BaseDataSet):
         self._raise_if_not_writable()
         interdeps = self._rundescriber.interdeps
 
-        toplevel_params = set(interdeps.dependencies).intersection(set(result_dict))
+        result_parameters = set(result_dict.keys())
+        unused_results = result_parameters.copy()
 
-        new_results: dict[str, dict[str, numpy.ndarray]] = {}
+        toplevel_params = set(interdeps.top_level_parameters).intersection(
+            result_parameters
+        )
+
+        new_results: dict[str, dict[str, npt.NDArray]] = {}
 
         for toplevel_param in toplevel_params:
-            inff_params = set(interdeps.inferences.get(toplevel_param, ()))
-            deps_params = set(interdeps.dependencies.get(toplevel_param, ()))
-            all_params = inff_params.union(deps_params).union({toplevel_param})
+            # Transitively collect all parameters that are related to any parameter
+            # in the current tree, including parameters that dependencies are inferred from
+            all_params = interdeps.find_all_parameters_in_tree(toplevel_param)
+            # Only include parameters that are present in result_dict
+            # we keep track of results unused in any tree and raise a warning at the end
+            # if there are any
+            all_params = all_params.intersection(result_parameters)
+
+            unused_results = unused_results.difference(all_params)
 
             if self._in_memory_cache:
                 new_results[toplevel_param.name] = {}
@@ -1254,8 +1367,13 @@ class DataSet(BaseDataSet):
             if toplevel_param.type == "array":
                 res_list = self._finalize_res_dict_array(result_dict, all_params)
             elif toplevel_param.type in ("numeric", "text", "complex"):
+                collected_params = all_params.copy()
+                collected_params.remove(toplevel_param)
+
                 res_list = self._finalize_res_dict_numeric_text_or_complex(
-                    result_dict, toplevel_param, inff_params, deps_params
+                    result_dict,
+                    toplevel_param,
+                    collected_params,
                 )
             else:
                 res_dict: dict[str, VALUE] = {
@@ -1264,25 +1382,19 @@ class DataSet(BaseDataSet):
                 res_list = [res_dict]
             self._results += res_list
 
-        # Finally, handle standalone parameters
-
-        standalones = set(interdeps.standalones).intersection(set(result_dict))
-
-        if standalones:
-            stdln_dict = {st: result_dict[st] for st in standalones}
-            self._results += self._finalize_res_dict_standalones(stdln_dict)
-            if self._in_memory_cache:
-                for st in standalones:
-                    new_results[st.name] = {
-                        st.name: self._reshape_array_for_cache(st, result_dict[st])
-                    }
+        if len(unused_results) > 0:
+            log.warning(
+                f"Results for parameters {unused_results} were not added to the "
+                "DataSet because they are not part of the interdependencies. "
+                "This will be an error in a future version of QCoDeS. "
+            )
 
         if self._in_memory_cache:
             self.cache.add_data(new_results)
 
     @staticmethod
     def _finalize_res_dict_array(
-        result_dict: Mapping[ParamSpecBase, values_type], all_params: set[ParamSpecBase]
+        result_dict: Mapping[ParamSpecBase, ValuesType], all_params: set[ParamSpecBase]
     ) -> list[dict[str, VALUE]]:
         """
         Make a list of res_dicts out of the results for a 'array' type
@@ -1314,10 +1426,9 @@ class DataSet(BaseDataSet):
 
     @staticmethod
     def _finalize_res_dict_numeric_text_or_complex(
-        result_dict: Mapping[ParamSpecBase, numpy.ndarray],
+        result_dict: Mapping[ParamSpecBase, npt.NDArray],
         toplevel_param: ParamSpecBase,
-        inff_params: set[ParamSpecBase],
-        deps_params: set[ParamSpecBase],
+        params: set[ParamSpecBase],
     ) -> list[dict[str, VALUE]]:
         """
         Make a res_dict in the format expected by DataSet.add_results out
@@ -1327,7 +1438,7 @@ class DataSet(BaseDataSet):
         """
 
         res_list: list[dict[str, VALUE]] = []
-        all_params = inff_params.union(deps_params).union({toplevel_param})
+        all_params = params.union({toplevel_param})
 
         t_map = {"numeric": float, "text": str, "complex": complex}
 
@@ -1338,21 +1449,16 @@ class DataSet(BaseDataSet):
         else:
             # We first massage all values into np.arrays of the same
             # shape
-            flat_results: dict[str, numpy.ndarray] = {}
+            flat_results: dict[str, npt.NDArray] = {}
 
             toplevel_val = result_dict[toplevel_param]
             flat_results[toplevel_param.name] = toplevel_val.ravel()
             N = len(flat_results[toplevel_param.name])
-            for dep in deps_params:
-                if result_dict[dep].shape == ():
-                    flat_results[dep.name] = numpy.repeat(result_dict[dep], N)
+            for param in params:
+                if result_dict[param].shape == ():
+                    flat_results[param.name] = numpy.repeat(result_dict[param], N)
                 else:
-                    flat_results[dep.name] = result_dict[dep].ravel()
-            for inff in inff_params:
-                if numpy.shape(result_dict[inff]) == ():
-                    flat_results[inff.name] = numpy.repeat(result_dict[inff], N)
-                else:
-                    flat_results[inff.name] = result_dict[inff].ravel()
+                    flat_results[param.name] = result_dict[param].ravel()
 
             # And then put everything into the list
 
@@ -1365,7 +1471,7 @@ class DataSet(BaseDataSet):
 
     @staticmethod
     def _finalize_res_dict_standalones(
-        result_dict: Mapping[ParamSpecBase, numpy.ndarray],
+        result_dict: Mapping[ParamSpecBase, npt.NDArray],
     ) -> list[dict[str, VALUE]]:
         """
         Massage all standalone parameters into the correct shape
@@ -1546,7 +1652,8 @@ def load_by_run_spec(
     sample_id: int | None = None,
     location: int | None = None,
     work_station: int | None = None,
-    conn: ConnectionPlus | None = None,
+    conn: AtomicConnection | None = None,
+    read_only: bool = False,
 ) -> DataSetProtocol:
     """
     Load a run from one or more pieces of runs specification. All
@@ -1571,6 +1678,8 @@ def load_by_run_spec(
         work_station: The workstation assigned as part of the GUID.
         conn: An optional connection to the database. If no connection is
           supplied a connection to the default database will be opened.
+        read_only: whether to open the connection in read-only mode.
+            Only takes effect if `conn` is not given.
 
     Raises:
         NameError: if no run or more than one run with the given specification
@@ -1580,8 +1689,9 @@ def load_by_run_spec(
         :class:`qcodes.dataset.data_set.DataSet` or
         :class:`.DataSetInMemory` matching the provided
         specification.
+
     """
-    internal_conn = conn or connect(get_DB_location())
+    internal_conn = conn or connect(get_DB_location(), read_only=read_only)
     d: DataSetProtocol | None = None
     try:
         guids = get_guids_by_run_spec(
@@ -1624,7 +1734,8 @@ def get_guids_by_run_spec(
     sample_id: int | None = None,
     location: int | None = None,
     work_station: int | None = None,
-    conn: ConnectionPlus | None = None,
+    conn: AtomicConnection | None = None,
+    read_only: bool = False,
 ) -> list[str]:
     """
     Get a list of matching guids from one or more pieces of runs specification. All
@@ -1642,11 +1753,14 @@ def get_guids_by_run_spec(
         work_station: The workstation assigned as part of the GUID.
         conn: An optional connection to the database. If no connection is
           supplied a connection to the default database will be opened.
+        read_only: whether to open the connection in read-only mode.
+            Only takes effect if `conn` is not given.
 
     Returns:
         List of guids matching the run spec.
+
     """
-    internal_conn = conn or connect(get_DB_location())
+    internal_conn = conn or connect(get_DB_location(), read_only=read_only)
     try:
         guids = _query_guids_from_run_spec(
             internal_conn,
@@ -1665,14 +1779,16 @@ def get_guids_by_run_spec(
     return matched_guids
 
 
-def load_by_id(run_id: int, conn: ConnectionPlus | None = None) -> DataSetProtocol:
+def load_by_id(
+    run_id: int, conn: AtomicConnection | None = None, read_only: bool = False
+) -> DataSetProtocol:
     """
     Load a dataset by run id
 
     If no connection is provided, lookup is performed in the database file that
     is specified in the config.
 
-    Note that the ``run_id`` used in this function in not preserved when copying
+    Note that the ``run_id`` used in this function is not preserved when copying
     data to another db file. We recommend using :func:`.load_by_run_spec` which
     does not have this issue and is significantly more flexible.
 
@@ -1685,20 +1801,25 @@ def load_by_id(run_id: int, conn: ConnectionPlus | None = None) -> DataSetProtoc
     Args:
         run_id: run id of the dataset
         conn: connection to the database to load from
+        read_only: whether to open the connection in read-only mode.
+            Only takes effect if `conn` is not given.
 
     Returns:
         :class:`qcodes.dataset.data_set.DataSet` or
         :class:`.DataSetInMemory` with the given run id
+
     """
     if run_id is None:
         raise ValueError("run_id has to be a positive integer, not None.")
-    internal_conn = conn or connect(get_DB_location())
+    internal_conn = conn or connect(get_DB_location(), read_only=read_only)
     d: DataSetProtocol | None = None
 
     try:
         guid = get_guid_from_run_id(internal_conn, run_id)
         if guid is None:
-            raise ValueError(f"Run with run_id {run_id} does not exist in the database")
+            raise ValueError(
+                f"Run with run_id {run_id} does not exist in the database: {internal_conn.path_to_dbfile}"
+            )
         d = _get_datasetprotocol_from_guid(guid, internal_conn)
     finally:
         # dataset takes ownership of the connection but DataSetInMem does not
@@ -1708,7 +1829,9 @@ def load_by_id(run_id: int, conn: ConnectionPlus | None = None) -> DataSetProtoc
     return d
 
 
-def load_by_guid(guid: str, conn: ConnectionPlus | None = None) -> DataSetProtocol:
+def load_by_guid(
+    guid: str, conn: AtomicConnection | None = None, read_only: bool = False
+) -> DataSetProtocol:
     """
     Load a dataset by its GUID
 
@@ -1723,6 +1846,8 @@ def load_by_guid(guid: str, conn: ConnectionPlus | None = None) -> DataSetProtoc
     Args:
         guid: guid of the dataset
         conn: connection to the database to load from
+        read_only: whether to open the connection in read-only mode.
+            Only takes effect if `conn` is not given.
 
     Returns:
         :class:`qcodes.dataset.data_set.DataSet` or
@@ -1731,8 +1856,9 @@ def load_by_guid(guid: str, conn: ConnectionPlus | None = None) -> DataSetProtoc
     Raises:
         NameError: if no run with the given GUID exists in the database
         RuntimeError: if several runs with the given GUID are found
+
     """
-    internal_conn = conn or connect(get_DB_location())
+    internal_conn = conn or connect(get_DB_location(), read_only=read_only)
     d: DataSetProtocol | None = None
 
     # this function raises a RuntimeError if more than one run matches the GUID
@@ -1747,14 +1873,17 @@ def load_by_guid(guid: str, conn: ConnectionPlus | None = None) -> DataSetProtoc
 
 
 def load_by_counter(
-    counter: int, exp_id: int, conn: ConnectionPlus | None = None
+    counter: int,
+    exp_id: int,
+    conn: AtomicConnection | None = None,
+    read_only: bool = False,
 ) -> DataSetProtocol:
     """
     Load a dataset given its counter in a given experiment
 
     Lookup is performed in the database file that is specified in the config.
 
-    Note that the `counter` used in this function in not preserved when copying
+    Note that the `counter` used in this function is not preserved when copying
     data to another db file. We recommend using :func:`.load_by_run_spec` which
     does not have this issue and is significantly more flexible.
 
@@ -1769,13 +1898,16 @@ def load_by_counter(
         exp_id: id of the experiment where to look for the dataset
         conn: connection to the database to load from. If not provided, a
           connection to the DB file specified in the config is made
+        read_only: whether to open the connection in read-only mode.
+            Only takes effect if `conn` is not given.
 
     Returns:
         :class:`DataSet` or
         :class:`.DataSetInMemory` of the given counter in
         the given experiment
+
     """
-    internal_conn = conn or connect(get_DB_location())
+    internal_conn = conn or connect(get_DB_location(), read_only=read_only)
     d: DataSetProtocol | None = None
 
     # this function raises a RuntimeError if more than one run matches the GUID
@@ -1790,10 +1922,14 @@ def load_by_counter(
     return d
 
 
-def _get_datasetprotocol_from_guid(guid: str, conn: ConnectionPlus) -> DataSetProtocol:
+def _get_datasetprotocol_from_guid(
+    guid: str, conn: AtomicConnection
+) -> DataSetProtocol:
     run_id = get_runid_from_guid(conn, guid)
     if run_id is None:
-        raise NameError("No run with GUID: %s found in database.", guid)
+        raise NameError(
+            "No run with GUID: %s found in database: %s", guid, conn.path_to_dbfile
+        )
 
     if qcodes.config.dataset.load_from_exported_file:
         export_info = _get_datasetprotocol_export_info(run_id=run_id, conn=conn)
@@ -1821,7 +1957,7 @@ def _get_datasetprotocol_from_guid(guid: str, conn: ConnectionPlus) -> DataSetPr
     return d
 
 
-def _get_datasetprotocol_export_info(run_id: int, conn: ConnectionPlus) -> ExportInfo:
+def _get_datasetprotocol_export_info(run_id: int, conn: AtomicConnection) -> ExportInfo:
     metadata = get_metadata_from_run_id(conn=conn, run_id=run_id)
     export_info_str = metadata.get("export_info", "")
     export_info = ExportInfo.from_str(export_info_str)
@@ -1834,7 +1970,7 @@ def new_data_set(
     specs: SPECS | None = None,
     values: VALUES | None = None,
     metadata: Any | None = None,
-    conn: ConnectionPlus | None = None,
+    conn: AtomicConnection | None = None,
     in_memory_cache: bool = True,
 ) -> DataSet:
     """
@@ -1855,6 +1991,7 @@ def new_data_set(
 
     Return:
         the newly created :class:`qcodes.dataset.data_set.DataSet`
+
     """
     # note that passing `conn` is a secret feature that is unfortunately used
     # in `Runner` to pass a connection from an existing `Experiment`.
@@ -1874,7 +2011,7 @@ def new_data_set(
 
 
 def generate_dataset_table(
-    guids: Sequence[str], conn: ConnectionPlus | None = None
+    guids: Sequence[str], conn: AtomicConnection | None = None, read_only: bool = False
 ) -> str:
     """
     Generate an ASCII art table of information about the runs attached to the
@@ -1882,9 +2019,12 @@ def generate_dataset_table(
 
     Args:
         guids: Sequence of one or more guids
-        conn: A ConnectionPlus object with a connection to the database.
+        conn: An AtomicConnection object with a connection to the database.
+        read_only: whether to open the connection in read-only mode.
+            Only takes effect if `conn` is not given.
 
     Returns: ASCII art table of information about the supplied guids.
+
     """
     from tabulate import tabulate
 
@@ -1898,7 +2038,7 @@ def generate_dataset_table(
     )
     table = []
     for guid in guids:
-        ds = load_by_guid(guid, conn=conn)
+        ds = load_by_guid(guid, conn=conn, read_only=read_only)
         parsed_guid = parse_guid(guid)
         table.append(
             [

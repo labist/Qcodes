@@ -11,6 +11,7 @@ from qcodes.instrument import (
 if TYPE_CHECKING:
     from typing_extensions import Unpack
 
+    from qcodes.instrument.channel import ChannelTuple
     from qcodes.parameters import Parameter
 
 
@@ -28,6 +29,7 @@ class MiniCircuitsRCSPDTChannel(InstrumentChannel):
             name: the name of the channel
             channel_letter: channel letter ['a', 'b', 'c' or 'd'])
             **kwargs: Forwarded to the baseclass
+
         """
 
         super().__init__(parent, name, **kwargs)
@@ -45,7 +47,7 @@ class MiniCircuitsRCSPDTChannel(InstrumentChannel):
         """Parameter switch"""
 
     def _set_switch(self, switch: int) -> None:
-        self.write(f"SET{self.channel_letter}={switch-1}")
+        self.write(f"SET{self.channel_letter}={switch - 1}")
 
     def _get_switch(self) -> int:
         val = int(self.ask("SWPORT?"))
@@ -65,6 +67,7 @@ class MiniCircuitsRCSPDT(IPInstrument):
         name: the name of the instrument
         address: ip address ie "10.0.0.1"
         port: port to connect to default Telnet:23
+
     """
 
     def __init__(
@@ -89,7 +92,10 @@ class MiniCircuitsRCSPDT(IPInstrument):
             channel = MiniCircuitsRCSPDTChannel(self, f"channel_{c}", c)
             channels.append(channel)
             self.add_submodule(f"channel_{c}", channel)
-        self.add_submodule("channels", channels.to_channel_tuple())
+        self.channels: ChannelTuple[MiniCircuitsRCSPDTChannel] = self.add_submodule(
+            "channels", channels.to_channel_tuple()
+        )
+        """Tuple of MiniCircuitsRCSPDTChannel"""
 
         self.connect_message()
 

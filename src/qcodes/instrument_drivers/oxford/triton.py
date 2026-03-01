@@ -36,6 +36,7 @@ class OxfordTriton(IPInstrument):
 
     Todo:
         fetch registry directly from fridge-computer
+
     """
 
     def __init__(
@@ -62,6 +63,9 @@ class OxfordTriton(IPInstrument):
         self._heater_range_curr = [0.316, 1, 3.16, 10, 31.6, 100]
         self._control_channel = 5
         self.pump_label_dict = {"TURB1": "Turbo 1", "COMP": "Compressor"}
+
+        self.magnet_available: bool = self._get_control_B_param("ACTN") != "INVALID"
+        """Indicates if a magnet is equipped *and* controlled by the Triton."""
 
         self.time: Parameter = self.add_parameter(
             name="time",
@@ -193,73 +197,80 @@ class OxfordTriton(IPInstrument):
             vals=Numbers(0, 300000))
         """Parameter still_heater_pwr"""
         
-        self.magnet_status: Parameter = self.add_parameter(
-            name="magnet_status",
-            label="Magnet status",
-            unit="",
-            get_cmd=partial(self._get_control_B_param, "ACTN"),
-        )
-        """Parameter magnet_status"""
+        if self.magnet_available:
+            self.magnet_status: Parameter = self.add_parameter(
+                name="magnet_status",
+                label="Magnet status",
+                unit="",
+                get_cmd=partial(self._get_control_B_param, "ACTN"),
+            )
+            """Parameter magnet_status"""
 
-        self.magnet_sweeprate: Parameter = self.add_parameter(
-            name="magnet_sweeprate",
-            label="Magnet sweep rate",
-            unit="T/min",
-            get_cmd=partial(self._get_control_B_param, "RVST:RATE"),
-            set_cmd=partial(self._set_control_magnet_sweeprate_param),
-        )
-        """Parameter magnet_sweeprate"""
+            self.magnet_sweeprate: Parameter = self.add_parameter(
+                name="magnet_sweeprate",
+                label="Magnet sweep rate",
+                unit="T/min",
+                get_cmd=partial(self._get_control_B_param, "RVST:RATE"),
+                set_cmd=partial(self._set_control_magnet_sweeprate_param),
+            )
+            """Parameter magnet_sweeprate"""
 
-        self.magnet_sweeprate_insta: Parameter = self.add_parameter(
-            name="magnet_sweeprate_insta",
-            label="Instantaneous magnet sweep rate",
-            unit="T/min",
-            get_cmd=partial(self._get_control_B_param, "RFST"),
-        )
-        """Parameter magnet_sweeprate_insta"""
+            self.magnet_sweeprate_insta: Parameter = self.add_parameter(
+                name="magnet_sweeprate_insta",
+                label="Instantaneous magnet sweep rate",
+                unit="T/min",
+                get_cmd=partial(self._get_control_B_param, "RFST"),
+            )
+            """Parameter magnet_sweeprate_insta"""
 
-        self.B: Parameter = self.add_parameter(
-            name="B",
-            label="Magnetic field",
-            unit="T",
-            get_cmd=partial(self._get_control_B_param, "VECT"),
-        )
-        """Parameter B"""
+            self.B: Parameter = self.add_parameter(
+                name="B",
+                label="Magnetic field",
+                unit="T",
+                get_cmd=partial(self._get_control_B_param, "VECT"),
+            )
+            """Parameter B"""
 
-        self.Bx: Parameter = self.add_parameter(
-            name="Bx",
-            label="Magnetic field x-component",
-            unit="T",
-            get_cmd=partial(self._get_control_Bcomp_param, "VECTBx"),
-            set_cmd=partial(self._set_control_Bx_param),
-        )
-        """Parameter Bx"""
+            self.Bx: Parameter = self.add_parameter(
+                name="Bx",
+                label="Magnetic field x-component",
+                unit="T",
+                get_cmd=partial(self._get_control_Bcomp_param, "VECTBx"),
+                set_cmd=partial(self._set_control_Bx_param),
+            )
+            """Parameter Bx"""
 
-        self.By: Parameter = self.add_parameter(
-            name="By",
-            label="Magnetic field y-component",
-            unit="T",
-            get_cmd=partial(self._get_control_Bcomp_param, "VECTBy"),
-            set_cmd=partial(self._set_control_By_param),
-        )
-        """Parameter By"""
+            self.By: Parameter = self.add_parameter(
+                name="By",
+                label="Magnetic field y-component",
+                unit="T",
+                get_cmd=partial(self._get_control_Bcomp_param, "VECTBy"),
+                set_cmd=partial(self._set_control_By_param),
+            )
+            """Parameter By"""
 
-        self.Bz: Parameter = self.add_parameter(
-            name="Bz",
-            label="Magnetic field z-component",
-            unit="T",
-            get_cmd=partial(self._get_control_Bcomp_param, "VECTBz"),
-            set_cmd=partial(self._set_control_Bz_param),
-        )
-        """Parameter Bz"""
+            self.Bz: Parameter = self.add_parameter(
+                name="Bz",
+                label="Magnetic field z-component",
+                unit="T",
+                get_cmd=partial(self._get_control_Bcomp_param, "VECTBz"),
+                set_cmd=partial(self._set_control_Bz_param),
+            )
+            """Parameter Bz"""
 
-        self.magnet_sweep_time: Parameter = self.add_parameter(
-            name="magnet_sweep_time",
-            label="Magnet sweep time",
-            unit="T/min",
-            get_cmd=partial(self._get_control_B_param, "RVST:TIME"),
-        )
-        """Parameter magnet_sweep_time"""
+            self.magnet_sweep_time: Parameter = self.add_parameter(
+                name="magnet_sweep_time",
+                label="Magnet sweep time",
+                unit="T/min",
+                get_cmd=partial(self._get_control_B_param, "RVST:TIME"),
+            )
+            """Parameter magnet_sweep_time"""
+        else:
+            self.log.debug(
+                "Skipped adding magnet parameters. This may either be because there "
+                "is none equipped or because the Mercury iPS is not set to be "
+                "controlled by the Triton."
+            )
 
         self.turb1_speed: Parameter = self.add_parameter(
             name="turb1_speed",
@@ -287,6 +298,8 @@ class OxfordTriton(IPInstrument):
         self.connect_message()
 
     def set_B(self, x: float, y: float, z: float, s: float) -> None:
+        if not self.magnet_available:
+            raise RuntimeError("Magnet not available")
         if 0 < s <= 0.2:
             self.write(
                 "SET:SYS:VRM:COO:CART:RVST:MODE:RATE:RATE:"
@@ -315,7 +328,7 @@ class OxfordTriton(IPInstrument):
         return self._get_response_value(self.ask(cmd[:-2]) + cmd[-2:])
 
     def _get_response(self, msg: str) -> str:
-        return msg.split(":")[-1]
+        return msg.rsplit(":", maxsplit=1)[-1]
 
     def _get_response_value(self, msg: str) -> float | str | list[float] | None:
         msg = self._get_response(msg)
@@ -531,6 +544,7 @@ class OxfordTriton(IPInstrument):
             msg: message string
         Returns
             action: string describing the action
+
         """
         action = msg[17:]
         if action == "PCL":
@@ -559,12 +573,12 @@ class OxfordTriton(IPInstrument):
     def _parse_temp(self, msg: str) -> float | None:
         if "NOT_FOUND" in msg:
             return None
-        return float(msg.split("SIG:TEMP:")[-1].strip("K"))
+        return float(msg.rsplit("SIG:TEMP:", maxsplit=1)[-1].strip("K"))
 
     def _parse_pres(self, msg: str) -> float | None:
         if "NOT_FOUND" in msg:
             return None
-        return float(msg.split("SIG:PRES:")[-1].strip("mB")) * 1e3
+        return float(msg.rsplit("SIG:PRES:", maxsplit=1)[-1].strip("mB")) * 1e3
 
     def _parse_htr(self, msg):
         if 'NOT_FOUND' in msg:
@@ -592,7 +606,7 @@ class OxfordTriton(IPInstrument):
     def _get_parser_pump_speed(self, msg: str) -> float | None:
         if "NOT_FOUND" in msg:
             return None
-        return float(msg.split("SPD:")[-1].strip("Hz"))
+        return float(msg.rsplit("SPD:", maxsplit=1)[-1].strip("Hz"))
 
     def _add_temp_state(self) -> None:
         for i in range(1, 17):
@@ -612,7 +626,7 @@ class OxfordTriton(IPInstrument):
     def _get_parser_state(self, key: str, msg: str) -> str | None:
         if "NOT_FOUND" in msg:
             return None
-        return msg.split(f"{key}:")[-1]
+        return msg.rsplit(f"{key}:", maxsplit=1)[-1]
 
 class Triton300(OxfordTriton):
     '''

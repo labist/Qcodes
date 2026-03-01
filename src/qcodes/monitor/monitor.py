@@ -36,12 +36,15 @@ from typing import TYPE_CHECKING, Any
 
 import websockets
 import websockets.exceptions
-import websockets.server
+from opentelemetry import trace
 
 from qcodes.parameters import Parameter
 
+TRACER = trace.get_tracer(__name__)
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
+
+    from websockets.asyncio.server import ServerConnection
 
 WEBSOCKET_PORT = 5678
 SERVER_PORT = 3000
@@ -49,6 +52,7 @@ SERVER_PORT = 3000
 log = logging.getLogger(__name__)
 
 
+@TRACER.start_as_current_span("qcodes.monitor.Monitor._get_metadata")
 def _get_metadata(
     *parameters: Parameter, use_root_instrument: bool = True
 ) -> dict[str, Any]:
@@ -84,8 +88,8 @@ def _get_metadata(
 
     # Create list of parameters, grouped by instrument
     parameters_out = []
-    for instrument in metas:
-        temp = {"instrument": instrument, "parameters": metas[instrument]}
+    for instrument, instrument_meta in metas.items():
+        temp = {"instrument": instrument, "parameters": instrument_meta}
         parameters_out.append(temp)
 
     state = {"ts": metadata_timestamp, "parameters": parameters_out}
@@ -94,28 +98,29 @@ def _get_metadata(
 
 def _handler(
     parameters: Sequence[Parameter], interval: float, use_root_instrument: bool = True
-) -> Callable[[websockets.server.WebSocketServerProtocol], Awaitable[None]]:
+) -> Callable[[ServerConnection], Awaitable[None]]:
     """
     Return the websockets server handler.
     """
 
-    async def server_func(websocket: websockets.server.WebSocketServerProtocol) -> None:
+    async def server_func(websocket: ServerConnection) -> None:
         """
         Create a websockets handler that sends parameter values to a listener
         every "interval" seconds.
         """
         while True:
             try:
-                # Update the parameter values
-                try:
-                    meta = _get_metadata(
-                        *parameters, use_root_instrument=use_root_instrument
-                    )
-                except ValueError:
-                    log.exception("Error getting parameters")
-                    break
-                log.debug("sending.. to %r", websocket)
-                await websocket.send(json.dumps(meta))
+                with TRACER.start_as_current_span("qcodes.monitor.Monitor._handler"):
+                    # Update the parameter values
+                    try:
+                        meta = _get_metadata(
+                            *parameters, use_root_instrument=use_root_instrument
+                        )
+                    except ValueError:
+                        log.exception("Error getting parameters")
+                        break
+                    log.debug("sending.. to %r", websocket)
+                    await websocket.send(json.dumps(meta))
                 # Wait for interval seconds and then send again
                 await asyncio.sleep(interval)
             except (CancelledError, websockets.exceptions.ConnectionClosed):
@@ -147,6 +152,7 @@ class Monitor(Thread):
             interval: How often one wants to refresh the values.
             use_root_instrument: Defines if parameters are grouped according to
                                 parameter.root_instrument or parameter.instrument
+
         """
         super().__init__(daemon=True)
 
@@ -188,7 +194,7 @@ class Monitor(Thread):
             self.loop = asyncio.get_running_loop()
             self._stop_loop_future = self.loop.create_future()
 
-            async with websockets.server.serve(
+            async with websockets.serve(
                 self.handler, "127.0.0.1", WEBSOCKET_PORT, close_timeout=1
             ):
                 self.server_is_started.set()
@@ -263,14 +269,13 @@ class Monitor(Thread):
 
 
 def main() -> None:
-    import http.server
+    # no need to import this if we are not running the web server
+    import http.server  # noqa: PLC0415
 
     # If this file is run, create a simple webserver that serves a simple
     # website that can be used to view monitored parameters.
-    # # https://github.com/python/mypy/issues/4182
-    parent_module = ".".join(__loader__.name.split(".")[:-1])  # type: ignore[name-defined]
 
-    static_dir = files(parent_module).joinpath("dist")
+    static_dir = files("qcodes.monitor").joinpath("dist")
     try:
         with as_file(static_dir) as extracted_dir:
             os.chdir(extracted_dir)

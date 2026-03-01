@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import collections.abc
 import logging
+import sys
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
 from .logger import LevelType, get_console_handler, handler_level
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, MutableMapping, Sequence
+    from collections.abc import Iterator, Mapping, MutableMapping, Sequence
 
     from qcodes.instrument import InstrumentBase
 
@@ -37,20 +38,57 @@ class InstrumentLoggerAdapter(logging.LoggerAdapter):
 
     """
 
+    def __init__(
+        self,
+        logger: logging.Logger,
+        extra: Mapping[str, object] | None = None,
+        merge_extra: bool = True,
+    ):
+        """
+        Initializes the InstrumentLoggerAdapter.
+
+        Args:
+            logger: The logger to which the records will be passed.
+            extra: Extra context data to be added to the log records.
+            merge_extra: If True, the extra data will be merged with the
+                existing extra data in the log record. Otherwise the extra
+                data will replace the existing extra data in the log record.
+
+        """
+        # forward the merge_extra bool to the parent class if 3.13
+        # otherwise assign it manually
+        if sys.version_info >= (3, 13):
+            super().__init__(
+                logger,
+                extra,
+                merge_extra=merge_extra,
+            )
+        else:
+            super().__init__(
+                logger,
+                extra,
+            )
+            self.merge_extra = merge_extra
+
     def process(
         self, msg: str, kwargs: MutableMapping[str, Any]
     ) -> tuple[str, MutableMapping[str, Any]]:
         """
         Returns the message and the kwargs for the handlers.
         """
-        assert self.extra is not None
-        extra = dict(self.extra)
-        inst = extra.pop("instrument")
+        if self.extra is None:
+            extra = {}
+        else:
+            extra = dict(self.extra)
+        inst = extra.pop("instrument", None)
 
         full_name = getattr(inst, "full_name", None)
         instr_type = str(type(inst).__name__)
 
-        kwargs["extra"] = extra
+        if self.merge_extra and "extra" in kwargs:
+            kwargs["extra"] = {**extra, **kwargs["extra"]}
+        else:
+            kwargs["extra"] = extra
         kwargs["extra"]["instrument_name"] = str(full_name)
         kwargs["extra"]["instrument_type"] = instr_type
         return f"[{full_name}({instr_type})] {msg}", kwargs
@@ -106,6 +144,7 @@ def get_instrument_logger(
     Returns:
         :class:`logging.LoggerAdapter` instance, that can be used for instrument
         specific logging.
+
     """
     logger_name = logger_name or ""
     return InstrumentLoggerAdapter(
@@ -135,6 +174,7 @@ def filter_instrument(
             messages from.
         level: Level to set the handlers to.
         handler: Single or sequence of handlers to change.
+
     """
     handlers: Sequence[logging.Handler]
     if handler is None:

@@ -2,8 +2,6 @@ import logging
 from functools import partial
 from typing import TYPE_CHECKING
 
-from typing_extensions import deprecated
-
 from qcodes import validators as vals
 from qcodes.instrument import (
     Instrument,
@@ -12,7 +10,6 @@ from qcodes.instrument import (
     VisaInstrument,
     VisaInstrumentKWArgs,
 )
-from qcodes.utils import QCoDeSDeprecationWarning
 
 from .private.error_handling import KeysightErrorQueueMixin
 
@@ -48,6 +45,7 @@ class Keysight33xxxOutputChannel(InstrumentChannel):
             name: The name of the channel
             channum: The number of the channel in question (1-2)
             **kwargs: kwargs are forwarded to base class.
+
         """
         super().__init__(parent, name, **kwargs)
 
@@ -61,6 +59,7 @@ class Keysight33xxxOutputChannel(InstrumentChannel):
                 parser: Either int or float, what to return in finite
                     cases
                 inputstring: The raw return value
+
             """
 
             inputstring = inputstring.strip()
@@ -371,6 +370,7 @@ class Keysight33xxx(KeysightErrorQueueMixin, VisaInstrument):
         name: str,
         address: str,
         silent: bool = False,
+        dynamic_channels: bool = True,
         **kwargs: "Unpack[VisaInstrumentKWArgs]",
     ):
         """
@@ -379,11 +379,22 @@ class Keysight33xxx(KeysightErrorQueueMixin, VisaInstrument):
                 by QCoDeS. Must be unique.
             address: The VISA resource name.
             silent: If True, no connect message is printed.
+            dynamic_channels: If True, channels are created
+                dynamically based on the model queried from the
+                instrument.
             **kwargs: kwargs are forwarded to base class.
+
         """
 
         super().__init__(name, address, **kwargs)
         self.model = self.IDN()["model"]
+
+        if self.model not in self.__class__.__name__:
+            log.warning(
+                f"The driver class name {self.__class__.__name__} does not match "
+                f"the detected model {self.model}. This might lead to "
+                "unexpected behavior including incorrect number of channels assigned."
+            )
 
         #######################################################################
         # Here go all model specific traits
@@ -395,6 +406,7 @@ class Keysight33xxx(KeysightErrorQueueMixin, VisaInstrument):
             "33511B": 1,
             "33512B": 2,
             "33522B": 2,
+            "33611A": 1,
             "33622A": 2,
             "33510B": 2,
         }
@@ -405,18 +417,23 @@ class Keysight33xxx(KeysightErrorQueueMixin, VisaInstrument):
             "33512B": 20e6,
             "33250A": 80e6,
             "33522B": 30e6,
+            "33611A": 80e6,
             "33622A": 120e6,
             "33510B": 20e6,
         }
 
         self.num_channels = no_of_channels[self.model]
 
-        for i in range(1, self.num_channels + 1):
-            channel = Keysight33xxxOutputChannel(self, f"ch{i}", i)
-            self.add_submodule(f"ch{i}", channel)
+        if dynamic_channels:
+            for i in range(1, self.num_channels + 1):
+                channel = Keysight33xxxOutputChannel(self, f"ch{i}", i)
+                self.add_submodule(f"ch{i}", channel)
 
         sync = Keysight33xxxSyncChannel(self, "sync")
-        self.add_submodule("sync", sync)
+        self.sync: Keysight33xxxSyncChannel = self.add_submodule("sync", sync)
+        """
+        Sync module
+        """
 
         self.add_function("force_trigger", call_cmd="*TRG")
 
@@ -426,9 +443,77 @@ class Keysight33xxx(KeysightErrorQueueMixin, VisaInstrument):
             self.connect_message()
 
 
-@deprecated(
-    "The base class for Keysight33xxx waveform generators has been renamed to Keysight33xxx",
-    category=QCoDeSDeprecationWarning,
-)
-class WaveformGenerator_33XXX(Keysight33xxx):
-    pass
+class Keysight33xxxSingleChannel(Keysight33xxx):
+    """
+    Subclass for 1 channel Keysight/Agilent 33XXX waveform generators.
+
+    Not to be instantiated directly.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        address: str,
+        silent: bool = False,
+        **kwargs: "Unpack[VisaInstrumentKWArgs]",
+    ):
+        """
+        Args:
+            name: The name of the instrument used internally
+                by QCoDeS. Must be unique.
+            address: The VISA resource name.
+            silent: If True, no connect message is printed.
+            **kwargs: kwargs are forwarded to base class.
+
+        """
+
+        super().__init__(name, address, silent=silent, dynamic_channels=False, **kwargs)
+
+        self.ch1: Keysight33xxxOutputChannel = self.add_submodule(
+            "ch1", Keysight33xxxOutputChannel(self, "ch1", 1)
+        )
+        """
+        Output channel 1
+        """
+
+
+class Keysight33xxxDualChannels(Keysight33xxx):
+    """
+    Subclass for 2 channel Keysight/Agilent 33XXX waveform generators.
+
+    Not to be instantiated directly.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        address: str,
+        silent: bool = False,
+        **kwargs: "Unpack[VisaInstrumentKWArgs]",
+    ):
+        """
+        Args:
+            name: The name of the instrument used internally
+                by QCoDeS. Must be unique.
+            address: The VISA resource name.
+            silent: If True, no connect message is printed.
+            **kwargs: kwargs are forwarded to base class.
+
+        """
+
+        super().__init__(name, address, silent=silent, dynamic_channels=False, **kwargs)
+
+        self.num_channels = 2
+
+        self.ch1: Keysight33xxxOutputChannel = self.add_submodule(
+            "ch1", Keysight33xxxOutputChannel(self, "ch1", 1)
+        )
+        """
+        Output channel 1
+        """
+        self.ch2: Keysight33xxxOutputChannel = self.add_submodule(
+            "ch2", Keysight33xxxOutputChannel(self, "ch2", 2)
+        )
+        """
+        Output channel 2
+        """

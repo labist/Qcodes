@@ -1,6 +1,8 @@
+import functools
 import itertools
 import textwrap
 import warnings
+from time import sleep
 from typing import TYPE_CHECKING
 
 import qcodes.validators as vals
@@ -31,15 +33,23 @@ class Keithley3706A(VisaInstrument):
         self,
         name: str,
         address: str,
+        use_forbidden_channels_cache: bool = False,
         **kwargs: "Unpack[VisaInstrumentKWArgs]",
     ) -> None:
         """
         Args:
             name: Name to use internally in QCoDeS
             address: VISA resource address
+            use_forbidden_channels_cache: If True, use local
+                forbidden channel cache instead of querying instrument.
+                See `Keithley3706A.get_forbidden_channels()` for
+                usage details and warnings.
             **kwargs: kwargs are forwarded to base class.
+
         """
         super().__init__(name, address, **kwargs)
+        self.use_forbidden_channels_cache: bool = use_forbidden_channels_cache
+        self._forbidden_channels_cache: str = ""
 
         self.channel_connect_rule: Parameter = self.add_parameter(
             "channel_connect_rule",
@@ -116,6 +126,7 @@ class Keithley3706A(VisaInstrument):
         Args:
             val: A string representing the channels, channel ranges,
                 backplane relays, slots or channel patterns to be queried.
+
         """
         if not self._validator(val):
             raise Keithley3706AInvalidValue(
@@ -132,6 +143,7 @@ class Keithley3706A(VisaInstrument):
         Args:
             val: A string representing the channels, channel ranges,
                 backplane relays, slots or channel patterns to be queried.
+
         """
 
         if not self._validator(val):
@@ -149,9 +161,12 @@ class Keithley3706A(VisaInstrument):
         Args:
             val: A string representing the channels, channel ranges,
                 backplane relays to be queried.
+
         """
         slots = ["allslots", *self._get_slot_names()]
-        forbidden_channels = self.get_forbidden_channels("allslots")
+        forbidden_channels = self.get_forbidden_channels(
+            "allslots", fetch_from_cache=self.use_forbidden_channels_cache
+        )
         if val in slots:
             raise Keithley3706AInvalidValue("Slots cannot be closed all together.")
         if not self._validator(val):
@@ -181,22 +196,23 @@ class Keithley3706A(VisaInstrument):
         Args:
             val: A string representing the channels, channel ranges,
                 backplane relays.
+
         """
         states = self.get_interlock_state()
         val_specifiers = val.split(",")
         for channel in val_specifiers:
             if self._is_backplane_channel(channel):
                 slot = channel[0]
-                interlock_state = [
+                interlock_state = next(
                     state for state in states if state["slot_no"] == slot
-                ][0]
+                )
                 if (
                     interlock_state["state"]
                     == "Interlocks 1 and 2 are disengaged on the card"
                 ):
                     warnings.warn(
                         f"The hardware interlocks in Slot "
-                        f'{interlock_state["slot_no"]} are disengaged. '
+                        f"{interlock_state['slot_no']} are disengaged. "
                         f"The analog backplane relay {channel} "
                         "cannot be energized.",
                         UserWarning,
@@ -218,6 +234,7 @@ class Keithley3706A(VisaInstrument):
         Args:
             val: A string representing the channels, channel ranges,
                 backplane relays to be queried.
+
         """
         slots = ["allslots", *self._get_slot_names()]
         if val in slots:
@@ -244,6 +261,7 @@ class Keithley3706A(VisaInstrument):
         Args:
             val: A string representing the channels, channel ranges,
                 backplane relays to be queried.
+
         """
         slots = ["allslots", *self._get_slot_names()]
         if val in slots:
@@ -291,6 +309,7 @@ class Keithley3706A(VisaInstrument):
         Args:
             val: A string representing the channels,
                 backplane relays or channel patterns to be queried.
+
         """
         if val == "":
             raise Keithley3706AInvalidValue("Argument cannot be an empty string.")
@@ -313,6 +332,7 @@ class Keithley3706A(VisaInstrument):
         Args:
             val: A string representing channels and backplane relays
                 to make forbidden to close.
+
         """
         if not self._validator(val):
             raise Keithley3706AInvalidValue(
@@ -322,7 +342,10 @@ class Keithley3706A(VisaInstrument):
             )
         self.write(f"channel.setforbidden('{val}')")
 
-    def get_forbidden_channels(self, val: str) -> str:
+        if self.use_forbidden_channels_cache:
+            self._forbidden_channels_cache = val
+
+    def get_forbidden_channels(self, val: str, fetch_from_cache: bool = False) -> str:
         """
         Returns a string that lists the channels and backplane relays
         that are forbidden to close.
@@ -331,7 +354,23 @@ class Keithley3706A(VisaInstrument):
             val: A string representing the channels,
                 backplane relays or channel patterns to be queried to see
                 if they are forbidden to close.
+            fetch_from_cache: If True, will fetch forbidden channels from cache,
+                otherwise, it will query the instrument.
+                May save time during measurements
+                where closing channels happens frequently. Please use with
+                caution since the local cache may become out of sync with
+                the instrument in the case of an instrument reset and/or
+                powercycle. If intending to set forbidden channels, always
+                do so before running a measurement to minimize risk of
+                cache being out of sync.
+
         """
+
+        # NOTE: The cache string should already be validated from
+        # calling set_forbidden_channels, so we can just return it
+        if fetch_from_cache:
+            return self._forbidden_channels_cache
+
         if not self._validator(val):
             raise Keithley3706AInvalidValue(
                 f"{val} is not a valid specifier. "
@@ -347,6 +386,7 @@ class Keithley3706A(VisaInstrument):
         Args:
             val: A string representing the channels that will no longer
                 be listed as forbidden to close.
+
         """
         if not self._validator(val):
             raise Keithley3706AInvalidValue(
@@ -356,6 +396,11 @@ class Keithley3706A(VisaInstrument):
             )
         self.write(f"channel.clearforbidden('{val}')")
 
+        if self.use_forbidden_channels_cache:
+            wait_to_clear_forbidden_channels_delay = 0.25
+            sleep(wait_to_clear_forbidden_channels_delay)
+            self._forbidden_channels_cache = self.get_forbidden_channels("allslots")
+
     def set_delay(self, val: str, delay_time: float) -> None:
         """
         Sets an additional delay time for the specified channels.
@@ -364,14 +409,14 @@ class Keithley3706A(VisaInstrument):
             val: A string representing the channels for which there will
                 be an additional delay time.
             delay_time: Delay time for the specified channels in seconds.
+
         """
         backplanes = self.get_analog_backplane_specifiers()
         specifiers = val.split(",")
         for element in specifiers:
             if element in backplanes:
                 raise Keithley3706AInvalidValue(
-                    "Additional delay times cannot be set for "
-                    "analog backplane relays."
+                    "Additional delay times cannot be set for analog backplane relays."
                 )
         if not self._validator(val):
             raise Keithley3706AInvalidValue(
@@ -388,14 +433,14 @@ class Keithley3706A(VisaInstrument):
         Args:
             val: A string representing the channels to query for
                 additional delay times.
+
         """
         backplanes = self.get_analog_backplane_specifiers()
         specifiers = val.split(",")
         for element in specifiers:
             if element in backplanes:
                 raise Keithley3706AInvalidValue(
-                    "Additional delay times cannot be set for "
-                    "analog backplane relays."
+                    "Additional delay times cannot be set for analog backplane relays."
                 )
         if not self._validator(val):
             raise Keithley3706AInvalidValue(
@@ -417,6 +462,7 @@ class Keithley3706A(VisaInstrument):
             val: A string representing the list of channels to change.
             backplane: A string representing the list of analog backplane
                 relays to set for the channels specified.
+
         """
         states = self.get_interlock_state()
         backplanes = self.get_analog_backplane_specifiers()
@@ -426,7 +472,7 @@ class Keithley3706A(VisaInstrument):
             if element["state"] == "Interlocks 1 and 2 are disengaged on the card":
                 warnings.warn(
                     f"The hardware interlocks in Slot "
-                    f'{element["slot_no"]} are disengaged. '
+                    f"{element['slot_no']} are disengaged. "
                     "The corresponding analog backplane relays "
                     "cannot be energized.",
                     UserWarning,
@@ -461,6 +507,7 @@ class Keithley3706A(VisaInstrument):
 
         Args:
             val: A string representing the channels being queried.
+
         """
         backplanes = self.get_analog_backplane_specifiers()
         specifiers = val.split(",")
@@ -577,6 +624,7 @@ class Keithley3706A(VisaInstrument):
 
         Args:
             slot_no: An integer value specifying the slot number.
+
         """
         slot_id = self._get_slot_ids()
         if str(slot_no) not in slot_id:
@@ -617,15 +665,13 @@ class Keithley3706A(VisaInstrument):
         """
         if action not in ["connect", "disconnect"]:
             raise ValueError(
-                "The action should be identified as either "
-                "'connect' or 'disconnect'."
+                "The action should be identified as either 'connect' or 'disconnect'."
             )
         slots = self._get_slot_ids()
         slot = str(slot_id)
         if slot not in slots:
             raise Keithley3706AUnknownOrEmptySlot(
-                "Please provide a valid slot identifier. "
-                f"Available slots are {slots}."
+                f"Please provide a valid slot identifier. Available slots are {slots}."
             )
         row = str(row_id)
         columns_list = []
@@ -653,15 +699,13 @@ class Keithley3706A(VisaInstrument):
         """
         if action not in ["connect", "disconnect"]:
             raise ValueError(
-                "The action should be identified as either "
-                "'connect' or 'disconnect'."
+                "The action should be identified as either 'connect' or 'disconnect'."
             )
         slots = self._get_slot_ids()
         slot = str(slot_id)
         if slot not in slots:
             raise Keithley3706AUnknownOrEmptySlot(
-                "Please provide a valid slot identifier. "
-                f"Available slots are {slots}."
+                f"Please provide a valid slot identifier. Available slots are {slots}."
             )
         column = []
         if column_id < 10:
@@ -693,6 +737,7 @@ class Keithley3706A(VisaInstrument):
                 will be connected.
             columns: The specifiers of the columns will be connected to the
                 provided row.
+
         """
         return self._connect_or_disconnect_row_to_columns(
             "connect", slot_id, row_id, columns
@@ -712,6 +757,7 @@ class Keithley3706A(VisaInstrument):
                 will be disconnected.
             columns: The specifiers of the columns will be disconnected from the
                 provided row.
+
         """
         return self._connect_or_disconnect_row_to_columns(
             "disconnect", slot_id, row_id, columns
@@ -731,6 +777,7 @@ class Keithley3706A(VisaInstrument):
                 will be connected.
             rows: The specifiers of the rows will be connected to the
                 provided column.
+
         """
         return self._connect_or_disconnect_column_to_rows(
             "connect", slot_id, column_id, rows
@@ -750,6 +797,7 @@ class Keithley3706A(VisaInstrument):
                 will be disconnected.
             rows: The specifiers of the rows will be disconnected from the
                 provided column.
+
         """
         return self._connect_or_disconnect_column_to_rows(
             "disconnect", slot_id, column_id, rows
@@ -823,8 +871,7 @@ class Keithley3706A(VisaInstrument):
         slot_id = self._get_slot_ids()
         interlock_status = {
             None: (
-                "No card is installed or the installed card does "
-                "not support interlocks"
+                "No card is installed or the installed card does not support interlocks"
             ),
             0: "Interlocks 1 and 2 are disengaged on the card",
             1: "Interlock 1 is engaged, interlock 2 (if it exists) is disengaged",
@@ -865,6 +912,7 @@ class Keithley3706A(VisaInstrument):
                 to which the setup shall be saved on a USB flash drive. If not
                 provided, the setup will be saved to the nonvolatile memory
                 of the instrument, any previous saves will be overwritten.
+
         """
         if val is not None:
             self.write(f"setup.save('{val}')")
@@ -881,8 +929,21 @@ class Keithley3706A(VisaInstrument):
                 the saved setup from the nonvolatile memory is recalled.
                 Otherwise, a string specifying the relative path to the saved
                 setup on a USB drive should be passed in.
+
         """
         self.write(f"setup.recall('{val}')")
+
+    @functools.cached_property
+    def _valid_specifiers(self) -> frozenset[str]:
+        """
+        Cache valid channel specifiers for fast validation.
+        This property is computed once on first access and cached.
+        """
+        ch = self.get_channels()
+        ch_range = self._get_channel_ranges()
+        slots = ["allslots", *self._get_slot_names()]
+        backplanes = self.get_analog_backplane_specifiers()
+        return frozenset((*ch, *ch_range, *slots, *backplanes))
 
     def _validator(self, val: str) -> bool:
         """
@@ -890,15 +951,7 @@ class Keithley3706A(VisaInstrument):
         are around 15k, to avoid QCoDeS parameter validation to print them all,
         we shall raise a custom exception.
         """
-        ch = self.get_channels()
-        ch_range = self._get_channel_ranges()
-        slots = ["allslots", *self._get_slot_names()]
-        backplanes = self.get_analog_backplane_specifiers()
-        specifier = val.split(",")
-        for element in specifier:
-            if element not in (*ch, *ch_range, *slots, *backplanes):
-                return False
-        return True
+        return all(element in self._valid_specifiers for element in val.split(","))
 
     def connect_message(
         self, idn_param: str = "IDN", begin_time: float | None = None

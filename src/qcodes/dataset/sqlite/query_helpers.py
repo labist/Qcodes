@@ -14,7 +14,7 @@ from numpy import ndarray
 from packaging import version
 
 from qcodes.dataset.sqlite.connection import (
-    ConnectionPlus,
+    AtomicConnection,
     atomic,
     atomic_transaction,
     transaction,
@@ -36,6 +36,7 @@ def get_description_map(curr: sqlite3.Cursor) -> dict[str, int]:
 
     Returns:
         dictionary mapping column names and their indices
+
     """
     return {c[0]: i for i, c in enumerate(curr.description)}
 
@@ -53,6 +54,7 @@ def one(curr: sqlite3.Cursor, column: int | str) -> Any:
 
     Returns:
         the value
+
     """
     res = curr.fetchall()
     if len(res) > 1:
@@ -102,6 +104,7 @@ def many(curr: sqlite3.Cursor, *columns: str) -> tuple[Any, ...]:
 
     Returns:
         list of  values
+
     """
     res = curr.fetchall()
     if len(res) > 1:
@@ -123,6 +126,7 @@ def many_many(curr: sqlite3.Cursor, *columns: str) -> list[tuple[Any, ...]]:
 
     Returns:
         list of lists of values
+
     """
     res = curr.fetchall()
 
@@ -136,7 +140,11 @@ def many_many(curr: sqlite3.Cursor, *columns: str) -> list[tuple[Any, ...]]:
 
 
 def select_one_where(
-    conn: ConnectionPlus, table: str, column: str, where_column: str, where_value: VALUE
+    conn: AtomicConnection,
+    table: str,
+    column: str,
+    where_column: str,
+    where_value: VALUE,
 ) -> VALUE:
     """
     Select a value from a given column given a match of a value in a
@@ -157,6 +165,7 @@ def select_one_where(
 
     Raises:
         RuntimeError if not exactly one match is found.
+
     """
     query = f"""
     SELECT {column}
@@ -171,7 +180,7 @@ def select_one_where(
 
 
 def select_many_where(
-    conn: ConnectionPlus,
+    conn: AtomicConnection,
     table: str,
     *columns: str,
     where_column: str,
@@ -203,7 +212,7 @@ def _massage_dict(metadata: Mapping[str, Any]) -> tuple[str, list[Any]]:
 
 
 def update_where(
-    conn: ConnectionPlus,
+    conn: AtomicConnection,
     table: str,
     where_column: str,
     where_value: Any,
@@ -222,7 +231,7 @@ def update_where(
 
 
 def insert_values(
-    conn: ConnectionPlus,
+    conn: AtomicConnection,
     formatted_name: str,
     columns: list[str],
     values: VALUES,
@@ -248,7 +257,7 @@ def insert_values(
 
 
 def insert_many_values(
-    conn: ConnectionPlus,
+    conn: AtomicConnection,
     formatted_name: str,
     columns: Sequence[str],
     values: Sequence[VALUES],
@@ -326,7 +335,7 @@ def insert_many_values(
     return return_value
 
 
-def length(conn: ConnectionPlus, formatted_name: str) -> int:
+def length(conn: AtomicConnection, formatted_name: str) -> int:
     """
     Return the length of the table
 
@@ -336,6 +345,7 @@ def length(conn: ConnectionPlus, formatted_name: str) -> int:
 
     Returns:
         the length of the table
+
     """
     # we replace ' in the table name to '' to make sure that
     # if the formatted name contains ' that will not cause the ' '
@@ -352,7 +362,7 @@ def length(conn: ConnectionPlus, formatted_name: str) -> int:
 
 
 def insert_column(
-    conn: ConnectionPlus, table: str, name: str, paramtype: str | None = None
+    conn: AtomicConnection, table: str, name: str, paramtype: str | None = None
 ) -> None:
     """Insert new column to a table
 
@@ -361,6 +371,7 @@ def insert_column(
         table: destination for the insertion
         name: column name
         paramtype: sqlite type of the column
+
     """
     # first check that the column is not already there
     # and do nothing if it is
@@ -381,7 +392,7 @@ def insert_column(
             transaction(atomic_conn, f'ALTER TABLE "{table}" ADD COLUMN "{name}"')
 
 
-def is_column_in_table(conn: ConnectionPlus, table: str, column: str) -> bool:
+def is_column_in_table(conn: AtomicConnection, table: str, column: str) -> bool:
     """
     A look-before-you-leap function to look up if a table has a certain column.
 
@@ -392,6 +403,7 @@ def is_column_in_table(conn: ConnectionPlus, table: str, column: str) -> bool:
         conn: The connection
         table: the table name
         column: the column name
+
     """
     cur = atomic_transaction(conn, f"PRAGMA table_info({table})")
     description = get_description_map(cur)
