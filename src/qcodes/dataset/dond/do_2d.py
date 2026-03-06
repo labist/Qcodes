@@ -61,6 +61,7 @@ def do2d(
     enter_actions: ActionsT = (),
     exit_actions: ActionsT = (),
     before_inner_actions: ActionsT = (),
+    before_meas_actions: ActionsT = (),
     after_inner_actions: ActionsT = (),
     write_period: float | None = None,
     measurement_name: str = "",
@@ -101,6 +102,8 @@ def do2d(
             called after the measurements ends
         before_inner_actions: Actions executed before each run of the inner loop
         after_inner_actions: Actions executed after each run of the inner loop
+        before_meas_actions: A list of function taking no argument that will 
+            be called before adding results to the datasaver
         write_period: The time after which the data is actually written to the
             database.
         measurement_name: Name of the measurement. This will be passed down to
@@ -206,6 +209,9 @@ def do2d(
                 else:
                     param_set2.set(set_point2)
                     time.sleep(delay2)
+
+                for action in before_meas_actions:
+                    action()
 
                 datasaver.add_result(
                     (param_set1, set_point1),

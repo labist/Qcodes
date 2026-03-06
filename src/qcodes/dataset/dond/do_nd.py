@@ -572,6 +572,7 @@ class DondKWargs(TypedDict):
     exp: NotRequired[Experiment | Sequence[Experiment] | None]
     enter_actions: NotRequired[ActionsT]
     exit_actions: NotRequired[ActionsT]
+    before_meas_actions: NotRequired[ActionsT]
     do_plot: NotRequired[bool | None]
     show_progress: NotRequired[bool | None]
     use_threads: NotRequired[bool | None]
@@ -590,6 +591,7 @@ def dond(
     exp: Experiment | Sequence[Experiment] | None = None,
     enter_actions: ActionsT = (),
     exit_actions: ActionsT = (),
+    before_meas_actions: ActionsT = (),
     do_plot: bool | None = None,
     show_progress: bool | None = None,
     use_threads: bool | None = None,
@@ -610,6 +612,7 @@ def dond(
     exp: Experiment | Sequence[Experiment] | None = None,
     enter_actions: ActionsT = (),
     exit_actions: ActionsT = (),
+    before_meas_actions: ActionsT = (),
     do_plot: bool | None = None,
     show_progress: bool | None = None,
     use_threads: bool | None = None,
@@ -630,6 +633,7 @@ def dond(
     exp: Experiment | Sequence[Experiment] | None = None,
     enter_actions: ActionsT = (),
     exit_actions: ActionsT = (),
+    before_meas_actions: ActionsT = (),
     do_plot: bool | None = None,
     show_progress: bool | None = None,
     use_threads: bool | None = None,
@@ -650,6 +654,7 @@ def dond(
     exp: Experiment | Sequence[Experiment] | None = None,
     enter_actions: ActionsT = (),
     exit_actions: ActionsT = (),
+    before_meas_actions: ActionsT = (),
     do_plot: bool | None = None,
     show_progress: bool | None = None,
     use_threads: bool | None = None,
@@ -705,6 +710,8 @@ def dond(
             called before the measurements start.
         exit_actions: A list of functions taking no arguments that will be
             called after the measurements ends.
+        before_meas_actions: A list of functions taking no arguments that
+            be called before each measurement is made on the inner loop
         do_plot: should png and pdf versions of the images be saved and plots
             are shown after the run. If None the setting will be read from
             ``qcodesrc.json``
@@ -819,6 +826,9 @@ def dond(
                             set_event.new_value = set_event.parameter()
 
                     results[set_event.parameter] = set_event.new_value
+
+                for action in before_meas_actions:
+                    action()
 
                 meas_value_pair = call_params_meas()
                 for meas_param, value in meas_value_pair:
