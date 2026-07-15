@@ -117,7 +117,7 @@ class Keysight33xxxOutputChannel(InstrumentChannel):
             get_cmd=f"SOURce{channum}:PHASe?",
             get_parser=float,
             unit="deg",
-            vals=vals.Numbers(0, 360),
+            vals=vals.Numbers(-360, 360),
         )
         """Parameter phase"""
         self.amplitude_unit: Parameter = self.add_parameter(
