@@ -428,12 +428,14 @@ class Keithley2450Source(InstrumentChannel["Keithley2450"]):
         """Parameter auto_range"""
 
         limit_cmd = {"current": "VLIM", "voltage": "ILIM"}[self._proper_function]
+        limit_unit = {"current": "V", "voltage": "A"}[self._proper_function]
+
         self.limit: Parameter = self.add_parameter(
             "limit",
             set_cmd=f"SOUR:{self._proper_function}:{limit_cmd} {{}}",
             get_cmd=f"SOUR:{self._proper_function}:{limit_cmd}?",
             get_parser=float,
-            unit=unit,
+            unit=limit_unit,
         )
         """Parameter limit"""
 
