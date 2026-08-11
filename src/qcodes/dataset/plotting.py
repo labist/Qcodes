@@ -201,7 +201,7 @@ def plot_dataset(
     experiment_name = dataset.exp_name.split('/')[-1] # remove path info from plot
     sample_name = dataset.sample_name
     title = (
-        f"Run #{dataset.captured_run_id}, Experiment {experiment_name} ({sample_name})"
+        f"Run #{dataset.run_id}, Experiment {experiment_name} ({sample_name})"
     )
 
     alldata: NamedData = _get_data_from_ds(dataset)
@@ -397,7 +397,7 @@ def plot_and_save_image(
 
     from qcodes import config  # noqa: PLC0415
 
-    dataid = data.captured_run_id
+    dataid = data.run_id
     axes, cbs = plot_dataset(data)
     mainfolder = config.user.mainfolder
     experiment_name = data.exp_name
@@ -419,6 +419,7 @@ def plot_and_save_image(
     res = data, tuple(axes), tuple(cbs)
     return res
 
+from qcodes.dataset import load_by_id
 
 def plot_by_id(
     run_id: int,
@@ -438,9 +439,11 @@ def plot_by_id(
     of :func:`qcodes.dataset.load_by_run_spec` for details of loading runs.
     All other arguments are forwarded
     to :func:`.plot_dataset`, see this for more details.
+    HLAB SPECIAL: user run_id instead of captured run_id
     """
 
-    dataset = load_by_run_spec(captured_run_id=run_id)
+    dataset = load_by_id(run_id) # hlab likes load_by_id
+
     return plot_dataset(
         dataset,
         axes,
