@@ -25,6 +25,7 @@ from .dond.do_0d import do0d
 from .dond.do_1d import do1d
 from .dond.do_2d import do2d
 from .dond.do_nd import dond
+from .dond.do_repeated import do_repeated
 from .dond.do_nd_utils import BreakConditionInterrupt
 from .dond.sweeps import AbstractSweep, ArraySweep, LinSweep, LogSweep, TogetherSweep
 from .experiment_container import (
