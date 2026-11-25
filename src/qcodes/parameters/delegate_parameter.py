@@ -1,17 +1,39 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Generic
+
+from typing_extensions import TypeVar
 
 from .parameter import Parameter
+from .parameter_base import InstrumentTypeVar_co, ParameterDataTypeVar
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from datetime import datetime
 
-    from .parameter_base import ParamDataType, ParamRawDataType
+    from qcodes.instrument import InstrumentBase
+    from qcodes.validators.validators import Validator
+
+    from .parameter_base import (
+        ParamDataType,
+        ParamRawDataType,
+    )
+
+# Generic type variables for inner cache class
+# these need to be different variables such that both classes can be generic
+_local_ParameterDataTypeVar = TypeVar("_local_ParameterDataTypeVar", default=Any)
+_local_InstrumentTypeVar_co = TypeVar(
+    "_local_InstrumentTypeVar_co",
+    bound="InstrumentBase | None",
+    default="InstrumentBase | None",
+    covariant=True,
+)
 
 
-class DelegateParameter(Parameter):
+class DelegateParameter(
+    Parameter[ParameterDataTypeVar, InstrumentTypeVar_co],
+    Generic[ParameterDataTypeVar, InstrumentTypeVar_co],
+):
     """
     The :class:`.DelegateParameter` wraps a given `source` :class:`Parameter`.
     Setting/getting it results in a set/get of the source parameter with
@@ -46,10 +68,18 @@ class DelegateParameter(Parameter):
         A DelegateParameter is not registered on the instrument by default.
         You should pass ``bind_to_instrument=True`` if you want this to
         be the case.
+
     """
 
-    class _DelegateCache:
-        def __init__(self, parameter: DelegateParameter):
+    class _DelegateCache(
+        Generic[_local_ParameterDataTypeVar, _local_InstrumentTypeVar_co]
+    ):
+        def __init__(
+            self,
+            parameter: DelegateParameter[
+                _local_ParameterDataTypeVar, _local_InstrumentTypeVar_co
+            ],
+        ):
             self._parameter = parameter
             self._marked_valid: bool = False
 
@@ -96,21 +126,19 @@ class DelegateParameter(Parameter):
             if self._parameter.source is not None:
                 self._parameter.source.cache.invalidate()
 
-        def get(self, get_if_invalid: bool = True) -> ParamDataType:
+        def get(self, get_if_invalid: bool = True) -> _local_ParameterDataTypeVar:
             if self._parameter.source is None:
                 raise TypeError(
-                    "Cannot get the cache of a "
-                    "DelegateParameter that delegates to None"
+                    "Cannot get the cache of a DelegateParameter that delegates to None"
                 )
             return self._parameter._from_raw_value_to_value(
                 self._parameter.source.cache.get(get_if_invalid=get_if_invalid)
             )
 
-        def set(self, value: ParamDataType) -> None:
+        def set(self, value: _local_ParameterDataTypeVar) -> None:
             if self._parameter.source is None:
                 raise TypeError(
-                    "Cannot set the cache of a DelegateParameter "
-                    "that delegates to None"
+                    "Cannot set the cache of a DelegateParameter that delegates to None"
                 )
             self._parameter.validate(value)
             self._parameter.source.cache.set(
@@ -120,15 +148,14 @@ class DelegateParameter(Parameter):
         def _set_from_raw_value(self, raw_value: ParamRawDataType) -> None:
             if self._parameter.source is None:
                 raise TypeError(
-                    "Cannot set the cache of a DelegateParameter "
-                    "that delegates to None"
+                    "Cannot set the cache of a DelegateParameter that delegates to None"
                 )
             self._parameter.source.cache.set(raw_value)
 
         def _update_with(
             self,
             *,
-            value: ParamDataType,
+            value: _local_ParameterDataTypeVar,
             raw_value: ParamRawDataType,
             timestamp: datetime | None = None,
         ) -> None:
@@ -142,7 +169,7 @@ class DelegateParameter(Parameter):
             """
             pass
 
-        def __call__(self) -> ParamDataType:
+        def __call__(self) -> _local_ParameterDataTypeVar:
             return self.get(get_if_invalid=True)
 
     def __init__(
@@ -154,19 +181,6 @@ class DelegateParameter(Parameter):
     ):
         if "bind_to_instrument" not in kwargs.keys():
             kwargs["bind_to_instrument"] = False
-
-        self._attr_inherit = {
-            "label": {"fixed": False, "value_when_without_source": name},
-            "unit": {"fixed": False, "value_when_without_source": ""},
-        }
-
-        for attr, attr_props in self._attr_inherit.items():
-            if attr in kwargs:
-                attr_props["fixed"] = True
-            else:
-                attr_props["fixed"] = False
-            source_attr = getattr(source, attr, attr_props["value_when_without_source"])
-            kwargs[attr] = kwargs.get(attr, source_attr)
 
         for cmd in ("set_cmd", "get_cmd"):
             if cmd in kwargs:
@@ -187,11 +201,18 @@ class DelegateParameter(Parameter):
         initial_cache_value = kwargs.pop("initial_cache_value", None)
         self.source = source
         super().__init__(name, *args, **kwargs)
-        # explicitly set the source properties as
-        # init will overwrite the ones set when assigning source
-        self._set_properties_from_source(source)
+        self.label = kwargs.get("label", None)
+        self.unit = kwargs.get("unit", None)
 
-        self.cache = self._DelegateCache(self)
+        # Hack While we inherit the settable status from the parent parameter
+        # we do allow param.set_to to temporary override _settable in a
+        # context. Here _settable should always be true except when set_to
+        # i.e. _SetParamContext overrides it
+        self._settable = True
+
+        self.cache = self._DelegateCache[ParameterDataTypeVar, InstrumentTypeVar_co](
+            self
+        )
         if initial_cache_value is not None:
             self.cache.set(initial_cache_value)
 
@@ -208,27 +229,70 @@ class DelegateParameter(Parameter):
 
     @source.setter
     def source(self, source: Parameter | None) -> None:
-        self._set_properties_from_source(source)
         self._source: Parameter | None = source
 
-    def _set_properties_from_source(self, source: Parameter | None) -> None:
-        if source is None:
-            self._gettable = False
-            self._settable = False
-            self._snapshot_value = False
-        else:
-            self._gettable = source.gettable
-            self._settable = source.settable
-            self._snapshot_value = source._snapshot_value
+    @property
+    def snapshot_value(self) -> bool:
+        if self.source is None:
+            return False
+        return self.source.snapshot_value
 
-        for attr, attr_props in self._attr_inherit.items():
-            if not attr_props["fixed"]:
-                attr_val = getattr(
-                    source, attr, attr_props["value_when_without_source"]
-                )
-                setattr(self, attr, attr_val)
+    @property
+    def unit(self) -> str:
+        """
+        The unit of measure. Read from source if not explicitly overwritten.
+        Set to None to disable overwrite.
+        """
+        if self._unit_override is not None:
+            return self._unit_override
+        elif self.source is not None:
+            return self.source.unit
+        else:
+            return ""
+
+    @unit.setter
+    def unit(self, unit: str | None) -> None:
+        self._unit_override = unit
+
+    @property
+    def label(self) -> str:
+        """
+        Label of the data used for plots etc.
+        Read from source if not explicitly overwritten.
+        Set to None to disable overwrite.
+        """
+        if self._label_override is not None:
+            return self._label_override
+        elif self.source is not None:
+            return self.source.label
+        else:
+            return self.name
+
+    @label.setter
+    def label(self, label: str | None) -> None:
+        self._label_override = label
+
+    @property
+    def gettable(self) -> bool:
+        if self.source is None:
+            return False
+        return self.source.gettable
+
+    @property
+    def settable(self) -> bool:
+        if self._settable is False:
+            return False
+        if self.source is None:
+            return False
+        return self.source.settable
 
     def get_raw(self) -> Any:
+        logger = self._get_logger()
+        logger.debug(
+            "Calling get on DelegateParameter %s with source %s",
+            self.full_name,
+            self.source,
+        )
         if self.source is None:
             raise TypeError(
                 "Cannot get the value of a DelegateParameter "
@@ -237,6 +301,12 @@ class DelegateParameter(Parameter):
         return self.source.get()
 
     def set_raw(self, value: Any) -> None:
+        logger = self._get_logger()
+        logger.debug(
+            "Calling set on DelegateParameter %s with source %s",
+            self.full_name,
+            self.source,
+        )
         if self.source is None:
             raise TypeError(
                 "Cannot set the value of a DelegateParameter "
@@ -270,7 +340,23 @@ class DelegateParameter(Parameter):
             TypeError: If the value is of the wrong type.
             ValueError: If the value is outside the bounds specified by the
                validator.
+
         """
         super().validate(value)
         if self.source is not None:
             self.source.validate(self._from_value_to_raw_value(value))
+
+    @property
+    def validators(self) -> tuple[Validator, ...]:
+        """
+        Tuple of all validators associated with the parameter. Note that this
+        includes validators of the source parameter if source parameter is set
+        and has any validators.
+
+        :getter: All validators associated with the parameter.
+        """
+        source_validators: tuple[Validator, ...] = (
+            self.source.validators if self.source is not None else ()
+        )
+
+        return tuple(self._vals) + source_validators

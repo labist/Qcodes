@@ -1,4 +1,5 @@
 import gc
+import itertools
 from functools import partial
 from itertools import product
 from pathlib import Path
@@ -98,8 +99,17 @@ def default_database_and_experiment_(tmp_path):
 def test_context(default_params, default_database_and_experiment):
     _ = default_database_and_experiment
     set1, set2, set3, meas1, meas2, meas3 = default_params
+    metadata_dict = {  # Nesting dictionaries does NOT work here
+        "test_metadata": "test_meta_value_1",
+        "test_metadata_2": "test_meta_value_2",
+    }
     dataset_definition = [
-        DataSetDefinition(name="dataset_1", independent=[set1], dependent=[meas1]),
+        DataSetDefinition(
+            name="dataset_1",
+            independent=[set1],
+            dependent=[meas1],
+            metadata=metadata_dict,
+        ),
         DataSetDefinition(
             name="dataset_2", independent=[set1, set2, set3], dependent=[meas2, meas3]
         ),
@@ -133,6 +143,8 @@ def test_context(default_params, default_database_and_experiment):
         },
         data_vars=(meas1.name,),
     )
+    assert datasets[0].metadata == metadata_dict
+
     assert_dataset_as_expected(
         datasets[1],
         dims_dict={
@@ -142,6 +154,7 @@ def test_context(default_params, default_database_and_experiment):
         },
         data_vars=(meas2.name, meas3.name),
     )
+    assert datasets[1].metadata == {}
 
 
 def test_dond_into(default_params, default_database_and_experiment):
@@ -223,6 +236,30 @@ def test_linsweeper(default_params, default_database_and_experiment):
         datasets[0],
         dims_dict={set1.name: 11, set2.name: 11},
         data_vars=(meas1.name, meas2.name),
+    )
+
+
+def test_nested_linsweeper(default_params):
+    set1, set2, _, _, _, _ = default_params
+    linsweeper1 = LinSweeper(set1, 0, 1, 11, 0.001)
+    linsweeper2 = LinSweeper(set2, -1, 0, 6, 0.001)
+    data_pairs = []
+    for _ in linsweeper1:
+        for _ in linsweeper2:
+            data_pairs.append([set1(), set2()])
+
+    assert len(data_pairs) == 11 * 6
+    assert np.all(
+        np.isclose(
+            np.array(data_pairs),
+            np.array(
+                list(
+                    itertools.product(
+                        linsweeper1.get_setpoints(), linsweeper2.get_setpoints()
+                    )
+                )
+            ),
+        )
     )
 
 

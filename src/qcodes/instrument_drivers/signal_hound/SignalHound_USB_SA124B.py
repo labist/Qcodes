@@ -5,6 +5,7 @@ from time import sleep
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import numpy.typing as npt
 
 import qcodes.validators as vals
 from qcodes.instrument import Instrument, InstrumentBaseKWArgs
@@ -156,7 +157,7 @@ class FrequencySweep(ArrayParameter):
         self.shape = (sweep_len,)
         self.instrument._trace_updated = True
 
-    def get_raw(self) -> np.ndarray:
+    def get_raw(self) -> npt.NDArray:
         if self.instrument is None:
             raise RuntimeError("No instrument is attached to 'FrequencySweep'")
         if not isinstance(self.instrument, SignalHoundUSBSA124B):
@@ -196,6 +197,7 @@ class SignalHoundUSBSA124B(Instrument):
             dll_path: Path to ``sa_api.dll`` Defaults to the default dll within
                 Spike installation
             **kwargs: kwargs are forwarded to base class.
+
         """
         super().__init__(name, **kwargs)
         self._parameters_synced = False
@@ -383,8 +385,7 @@ class SignalHoundUSBSA124B(Instrument):
             initial_value=0.1,
             get_cmd=None,
             set_cmd=None,
-            docstring="Time to sleep before and after "
-            "getting data from the instrument",
+            docstring="Time to sleep before and after getting data from the instrument",
             vals=vals.Numbers(0),
         )
         """Time to sleep before and after getting data from the instrument"""
@@ -705,6 +706,7 @@ class SignalHoundUSBSA124B(Instrument):
 
         Returns:
             number of points in sweep, start frequency and step size
+
         """
 
         sweep_len = ct.c_int(0)
@@ -719,13 +721,14 @@ class SignalHoundUSBSA124B(Instrument):
         self.check_for_error(err, "saQuerySweepInfo")
         return sweep_len.value, start_freq.value, stepsize.value
 
-    def _get_sweep_data(self) -> np.ndarray:
+    def _get_sweep_data(self) -> npt.NDArray:
         """
         This function performs a sweep over the configured ranges.
         The result of the sweep is returned along with the sweep points
 
         Returns:
             datamin numpy array
+
         """
         if not self._parameters_synced:
             self.sync_parameters()
@@ -733,7 +736,7 @@ class SignalHoundUSBSA124B(Instrument):
 
         data = np.zeros(sweep_len)
         Navg = self.avg()
-        for i in range(Navg):
+        for _ in range(Navg):
             datamin = np.zeros((sweep_len), dtype=np.float32)
             datamax = np.zeros((sweep_len), dtype=np.float32)
 
@@ -788,14 +791,13 @@ class SignalHoundUSBSA124B(Instrument):
                 log.warning(msg)
             else:
                 msg = (
-                    f"During call of {source} the following Error: "
-                    f"{err_str} was raised"
+                    f"During call of {source} the following Error: {err_str} was raised"
                 )
                 if extrainfo is not None:
                     msg = msg + f"\n Extra info: {extrainfo}"
                 raise OSError(msg)
         else:
-            msg = "Call to {source} was successful"
+            msg = f"Call to {source} was successful"
             if extrainfo is not None:
                 msg = msg + f"\n Extra info: {extrainfo}"
             log.info(msg)
@@ -817,7 +819,7 @@ class SignalHoundUSBSA124B(Instrument):
         output["firmware"] = fw_version.value.decode("ascii")
         return output
 
-    def _get_freq_axis(self) -> np.ndarray:
+    def _get_freq_axis(self) -> npt.NDArray:
         if not self._parameters_synced:
             self.sync_parameters()
         sweep_len, start_freq, stepsize = self.QuerySweep()

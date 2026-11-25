@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import math
-from typing import SupportsAbs
+from typing import TYPE_CHECKING, SupportsAbs
+
+if TYPE_CHECKING:
+    from qcodes.utils.types import NumberType
 
 
 # could use numpy.arange here, but
 # I'd like to be more flexible with the sign of step
 def permissive_range(
-    start: float, stop: float, step: SupportsAbs[float]
-) -> list[float]:
+    start: NumberType, stop: NumberType, step: SupportsAbs[NumberType]
+) -> list[NumberType]:
     """
     Returns a range (as a list of values) with floating point steps.
     Always starts at start and moves toward stop, regardless of the
@@ -18,6 +21,7 @@ def permissive_range(
         start: The starting value of the range.
         stop: The end value of the range.
         step: Spacing between the values.
+
     """
     signed_step = abs(step) * (1 if stop > start else -1)
     # take off a tiny bit for rounding errors

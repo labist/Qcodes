@@ -9,12 +9,11 @@ import gc
 import io
 import re
 import weakref
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, assert_type
 from weakref import WeakValueDictionary
 
 import pytest
 from pytest import FixtureRequest
-from typing_extensions import assert_type
 
 from qcodes.instrument import (
     Instrument,
@@ -273,12 +272,20 @@ def test_add_remove_f_p(testdummy) -> None:
     testdummy.add_function("dac1", call_cmd="foo")
 
     # test custom __get_attr__ for functions
-    fcn = testdummy["function"]
-    assert isinstance(fcn, Function)
+    with pytest.warns(
+        PendingDeprecationWarning,
+        match="Use attributes directly on the instrument object instead",
+    ):
+        fcn = testdummy["function"]
+        assert isinstance(fcn, Function)
     # by design, one gets the parameter if a function exists
     # and has same name
-    dac1 = testdummy["dac1"]
-    assert isinstance(dac1, Parameter)
+    with pytest.warns(
+        PendingDeprecationWarning,
+        match="Use attributes directly on the instrument object instead",
+    ):
+        dac1 = testdummy["dac1"]
+        assert isinstance(dac1, Parameter)
 
 
 def test_instances(testdummy, parabola) -> None:

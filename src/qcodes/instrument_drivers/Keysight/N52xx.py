@@ -3,8 +3,8 @@ import time
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import numpy.typing as npt
 from pyvisa import constants, errors
-from typing_extensions import deprecated
 
 from qcodes.instrument import (
     ChannelList,
@@ -19,7 +19,6 @@ from qcodes.parameters import (
     ParameterWithSetpoints,
     create_on_off_val_mapping,
 )
-from qcodes.utils import QCoDeSDeprecationWarning
 from qcodes.validators import Arrays, Bool, Enum, Ints, Numbers
 
 if TYPE_CHECKING:
@@ -45,7 +44,7 @@ class PNAAxisParameter(Parameter):
         self._stopparam = stopparam
         self._pointsparam = pointsparam
 
-    def get_raw(self) -> np.ndarray:
+    def get_raw(self) -> npt.NDArray:
         """
         Return the axis values, with values retrieved from the parent instrument
         """
@@ -53,7 +52,7 @@ class PNAAxisParameter(Parameter):
 
 
 class PNALogAxisParamter(PNAAxisParameter):
-    def get_raw(self) -> np.ndarray:
+    def get_raw(self) -> npt.NDArray:
         """
         Return the axis values on a log scale, with values retrieved from
         the parent instrument
@@ -62,7 +61,7 @@ class PNALogAxisParamter(PNAAxisParameter):
 
 
 class PNATimeAxisParameter(PNAAxisParameter):
-    def get_raw(self) -> np.ndarray:
+    def get_raw(self) -> npt.NDArray:
         """
         Return the axis values on a time scale, with values retrieved from
         the parent instrument
@@ -97,7 +96,7 @@ class FormattedSweep(ParameterWithSetpoints):
         """
         if self.instrument is None:
             raise RuntimeError("Cannot return setpoints if not attached to instrument")
-        root_instrument: PNABase = self.root_instrument  # type: ignore[assignment]
+        root_instrument: KeysightPNABase = self.root_instrument  # type: ignore[assignment]
         sweep_type = root_instrument.sweep_type()
         if sweep_type == "LIN":
             return (root_instrument.frequency_axis,)
@@ -116,7 +115,7 @@ class FormattedSweep(ParameterWithSetpoints):
         """
         return
 
-    def get_raw(self) -> np.ndarray:
+    def get_raw(self) -> npt.NDArray:
         if self.instrument is None:
             raise RuntimeError("Cannot get data without instrument")
         root_instr = self.instrument.root_instrument
@@ -318,7 +317,7 @@ class KeysightPNATrace(InstrumentChannel):
         averaged = np.mean(lin)
         return 20 * np.log10(averaged)
     @staticmethod
-    def _parse_polar_data(data: np.ndarray) -> np.ndarray:
+    def _parse_polar_data(data: npt.NDArray) -> npt.NDArray:
         """
         Parse the 2*n-length flat array coming from the instrument
         and convert to n-length array of complex numbers
@@ -361,8 +360,7 @@ class KeysightPNATrace(InstrumentChannel):
                 )
             elif source == "EXT":
                 msg += (
-                    "The trigger source is external. Is the trigger "
-                    "source functional?"
+                    "The trigger source is external. Is the trigger source functional?"
                 )
             self.log.warning(msg)
             raise
@@ -802,6 +800,7 @@ class KeysightPNABase(VisaInstrument):
 
         Returns:
             The trace number of the selected trace
+
         """
         self.write(f"CALC:PAR:SEL '{trace_name}'")
         return self.active_trace()
@@ -850,13 +849,3 @@ class KeysightPNAxBase(KeysightPNABase):
             vals=Numbers(min_value=self.min_freq, max_value=self.max_freq),
         )
         """Parameter aux_frequency"""
-
-
-@deprecated("Use KeysightPNABase", category=QCoDeSDeprecationWarning)
-class PNABase(KeysightPNABase):
-    pass
-
-
-@deprecated("Use KeysightPNAxBase", category=QCoDeSDeprecationWarning)
-class PNAxBase(KeysightPNAxBase):
-    pass

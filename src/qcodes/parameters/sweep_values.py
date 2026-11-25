@@ -13,6 +13,7 @@ from .sequence_helpers import is_sequence
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
+    from typing import Self
 
     from qcodes.parameters import ParameterBase
 
@@ -48,6 +49,7 @@ def make_sweep(
         [5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
         >>> make_sweep(15, 10.5, step=1.5)
         >[15.0, 13.5, 12.0, 10.5]
+
     """
     if step and num:
         raise AttributeError("Don't use `step` and `num` at the same time.")
@@ -78,7 +80,7 @@ def make_sweep(
         )
 
     output_list = np.linspace(start, stop, num=num_steps).tolist()
-    return cast(list[float], output_list)
+    return cast("list[float]", output_list)
 
 
 class SweepValues(Metadatable):
@@ -124,6 +126,7 @@ class SweepValues(Metadatable):
 
     That allows things like adaptive sampling, where you don't know ahead of
     time what the values will be or even how many there are.
+
     """
 
     def __init__(self, parameter: ParameterBase, **kwargs: Any):
@@ -147,6 +150,7 @@ class SweepValues(Metadatable):
 
         Args:
             values: values to be validated.
+
         """
         if hasattr(self.parameter, "validate"):
             for value in values:
@@ -154,7 +158,7 @@ class SweepValues(Metadatable):
 
     def __iter__(self) -> Iterator[Any]:
         """
-        must be overridden (along with __next__ if this returns self)
+        Must be overridden (along with __next__ if this returns self)
         by a subclass to tell how to iterate over these values
         """
         raise NotImplementedError
@@ -204,6 +208,7 @@ class SweepFixedValues(SweepValues):
     "for val in sv", so any class that implements these may be used in sweeps.
     That allows things like adaptive sampling, where you don't know ahead of
     time what the values will be or even how many there are.
+
     """
 
     def __init__(
@@ -286,6 +291,7 @@ class SweepFixedValues(SweepValues):
 
         Args:
             value: new value to append
+
         """
         self.validate((value,))
         self._values.append(value)
@@ -300,6 +306,7 @@ class SweepFixedValues(SweepValues):
 
         Raises:
             TypeError: if new_values is not Sequence, nor SweepFixedValues
+
         """
         if isinstance(new_values, SweepFixedValues):
             if new_values.parameter is not self.parameter:
@@ -316,14 +323,15 @@ class SweepFixedValues(SweepValues):
         else:
             raise TypeError(f"cannot extend SweepFixedValues with {new_values}")
 
-    def copy(self) -> SweepFixedValues:
+    def copy(self) -> Self:
         """
         Copy this SweepFixedValues.
 
         Returns:
             SweepFixedValues of copied values
+
         """
-        new_sv = SweepFixedValues(self.parameter, [])
+        new_sv = self.__class__(self.parameter, [])
         # skip validation by adding values and snapshot separately
         # instead of on init
         new_sv._values = self._values[:]
@@ -352,6 +360,7 @@ class SweepFixedValues(SweepValues):
 
         Returns:
             dict: base snapshot
+
         """
         self._snapshot["parameter"] = self.parameter.snapshot(update=update)
         self._snapshot["values"] = self._value_snapshot
@@ -366,19 +375,19 @@ class SweepFixedValues(SweepValues):
     def __len__(self) -> int:
         return len(self._values)
 
-    def __add__(self, other: Sequence[Any] | SweepFixedValues) -> SweepFixedValues:
+    def __add__(self, other: Sequence[Any] | SweepFixedValues) -> Self:
         new_sv = self.copy()
         new_sv.extend(other)
         return new_sv
 
-    def __iadd__(self, values: Sequence[Any] | SweepFixedValues) -> SweepFixedValues:
+    def __iadd__(self, values: Sequence[Any] | SweepFixedValues) -> Self:
         self.extend(values)
         return self
 
     def __contains__(self, value: float) -> bool:
         return value in self._values
 
-    def __reversed__(self) -> SweepFixedValues:
+    def __reversed__(self) -> Self:
         new_sv = self.copy()
         new_sv.reverse()
         return new_sv

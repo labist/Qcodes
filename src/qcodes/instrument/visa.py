@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import warnings
 from importlib.resources import as_file, files
-from typing import TYPE_CHECKING, Any, Literal, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, Self, TypedDict
 from weakref import finalize
 
 import pyvisa
@@ -22,8 +22,11 @@ from .instrument_base import InstrumentBase, InstrumentBaseKWArgs
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
+    from typing import NotRequired
 
-    from typing_extensions import NotRequired, Unpack
+    from typing_extensions import Unpack
+
+    from qcodes.parameters.parameter import Parameter
 
 VISA_LOGGER = ".".join((InstrumentBase.__module__, "com", "visa"))
 
@@ -137,7 +140,8 @@ class VisaInstrument(Instrument):
         name: str,
         address: str,
         timeout: float | None | Literal["Unset"] = "Unset",
-        terminator: str | None | Literal["Unset"] = "Unset",
+        terminator: str | Literal["Unset"] | None = "Unset",  # noqa: PYI051
+        # while unset is redundant here we add it to communicate to the user that unset has special meaning
         device_clear: bool = True,
         visalib: str | None = None,
         pyvisa_sim_file: str | None = None,
@@ -151,7 +155,7 @@ class VisaInstrument(Instrument):
         super().__init__(name, **kwargs)
         self.visa_log = get_instrument_logger(self, VISA_LOGGER)
 
-        self.add_parameter(
+        self.timeout: Parameter[float | None, Self] = self.add_parameter(
             "timeout",
             get_cmd=self._get_visa_timeout,
             set_cmd=self._set_visa_timeout,
@@ -255,6 +259,7 @@ class VisaInstrument(Instrument):
                 should be the actual address and just that. If you wish to
                 change the backend for VISA, use the self.visalib attribute
                 (and then call this function).
+
         """
         resource, visabackend, resource_manager = self._open_resource(
             address, self.visalib
@@ -294,6 +299,7 @@ class VisaInstrument(Instrument):
             terminator: Character(s) to look for at the end of a read and
                 to end each write command with.
                 eg. ``\r\n``. If None the terminator will not be set.
+
         """
         if terminator is not None:
             self.visa_handle.write_termination = terminator
@@ -362,6 +368,7 @@ class VisaInstrument(Instrument):
 
         Args:
             cmd: The command to send to the instrument.
+
         """
         with DelayedKeyboardInterrupt(
             context={"instrument": self.name, "reason": "Visa Instrument write"}
@@ -378,6 +385,7 @@ class VisaInstrument(Instrument):
 
         Returns:
             str: The instrument's response.
+
         """
         with DelayedKeyboardInterrupt(
             context={"instrument": self.name, "reason": "Visa Instrument ask"}
@@ -411,6 +419,7 @@ class VisaInstrument(Instrument):
 
         Returns:
             dict: base snapshot
+
         """
         snap = super().snapshot_base(
             update=update, params_to_skip_update=params_to_skip_update

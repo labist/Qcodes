@@ -8,6 +8,7 @@ import operator
 import traceback
 from datetime import datetime
 from functools import partial, reduce
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from ipywidgets import (  # type: ignore[import-untyped]
@@ -23,7 +24,6 @@ from ipywidgets import (  # type: ignore[import-untyped]
     Textarea,
     VBox,
 )
-from ruamel.yaml import YAML
 
 from qcodes.dataset import experiments, initialise_or_create_database_at, plot_dataset
 
@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Sequence
 
     from qcodes.dataset.data_set_protocol import DataSetProtocol
-    from qcodes.dataset.descriptions.param_spec import ParamSpecBase
+    from qcodes.parameters import ParamSpecBase
 
 _META_DATA_KEY = "widget_notes"
 
@@ -135,6 +135,7 @@ def _nested_dict_browser(
         max_nrows: The maximum number of rows that can be displayed at once.
             Whenever the table has less than ``max_nrows`` rows, the table is
             displayed in 3 columns, otherwise it's 2 columns.
+
     """
 
     def _should_expand(x: Any) -> bool:
@@ -215,6 +216,7 @@ def _do_in_tab(
         tab: Instance of `ipywidgets.Tab`.
         ds: A qcodes.DataSet instance.
         which: Either "plot" or "snapshot".
+
     """
     from IPython.display import clear_output, display
 
@@ -341,6 +343,8 @@ def editable_metadata(ds: DataSetProtocol) -> Box:
 
 
 def _yaml_dump(dct: dict[str, Any]) -> str:
+    from ruamel.yaml import YAML
+
     with io.StringIO() as f:
         YAML().dump(dct, f)
         return f.getvalue()
@@ -439,6 +443,21 @@ def _get_plot_button(ds: DataSetProtocol, tab: Tab) -> Button:
     )
 
 
+def _get_export_button(
+    ds: DataSetProtocol, tab: Tab
+) -> Button:  # New button in the table to export each dataset
+    return button(
+        "",
+        "warning",
+        tooltip="Click to export this DataSet as ASCII.",
+        on_click=lambda _: ds.export(
+            "csv",
+            path=Path.cwd() / "export",
+        ),
+        button_kwargs=dict(icon="file-export"),
+    )
+
+
 def _experiment_widget(
     data_sets: Iterable[DataSetProtocol], tab: Tab
 ) -> GridspecLayout:
@@ -454,6 +473,7 @@ def _experiment_widget(
         "Notes",
         "Snapshot",
         "Plot",
+        "Export",
     ]
 
     header = {n: button(n, "info") for n in header_names}
@@ -468,6 +488,7 @@ def _experiment_widget(
         row["MSMT Time"] = _get_timestamp_button(ds)
         row["Snapshot"] = _get_snapshot_button(ds, tab)
         row["Plot"] = _get_plot_button(ds, tab)
+        row["Export"] = _get_export_button(ds, tab)
         rows.append(row)
 
     grid = GridspecLayout(n_rows=len(rows), n_columns=len(header_names))
@@ -504,6 +525,7 @@ def experiments_widget(
             argument has no effect.
         sort_by: Sort datasets in widget by either "timestamp" (newest first),
             "run_id" or None (no predefined sorting).
+
     """
     if data_sets is None:
         if db is not None:
@@ -514,9 +536,9 @@ def experiments_widget(
     elif sort_by == "timestamp":
         data_sets = sorted(
             data_sets,
-            key=lambda ds: ds.run_timestamp_raw
-            if ds.run_timestamp_raw is not None
-            else 0,
+            key=lambda ds: (
+                ds.run_timestamp_raw if ds.run_timestamp_raw is not None else 0
+            ),
             reverse=True,
         )
 

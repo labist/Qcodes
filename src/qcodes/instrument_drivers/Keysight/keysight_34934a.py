@@ -1,6 +1,6 @@
 import logging
 import re
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING
 
 from qcodes import validators
 
@@ -27,11 +27,12 @@ class Keysight34934A(Keysight34980ASwitchMatrixSubModule):
         parent: the system which the module is installed on
         name: user defined name for the module
         slot: the slot the module is installed
+
     """
 
     def __init__(
         self,
-        parent: Union["VisaInstrument", "InstrumentChannel"],
+        parent: "VisaInstrument | InstrumentChannel",
         name: str,
         slot: int,
         **kwargs: "Unpack[InstrumentBaseKWArgs]",
@@ -88,12 +89,13 @@ class Keysight34934A(Keysight34980ASwitchMatrixSubModule):
 
     def validate_value(self, row: int, column: int) -> None:
         """
-        to check if the row and column number is within the range of the
+        To check if the row and column number is within the range of the
         module layout.
 
         Args:
             row: row value
             column: column value
+
         """
         if (row > self.row) or (column > self.column):
             raise ValueError("row/column value out of range")
@@ -108,7 +110,7 @@ class Keysight34934A(Keysight34980ASwitchMatrixSubModule):
         self, paths: list[tuple[int, int]], wiring_config: str | None = ""
     ) -> str:
         """
-        convert the (row, column) pair to a 4-digit channel number 'sxxx', where
+        Convert the (row, column) pair to a 4-digit channel number 'sxxx', where
         s is the slot number, xxx is generated from the numbering function.
 
         Args:
@@ -120,6 +122,7 @@ class Keysight34934A(Keysight34980ASwitchMatrixSubModule):
         Returns:
             in the format of '(@sxxx, sxxx, sxxx, sxxx)', where sxxx is a
             4-digit channel number
+
         """
         numbering_function = self.get_numbering_function(
             self.row, self.column, wiring_config
@@ -137,7 +140,7 @@ class Keysight34934A(Keysight34980ASwitchMatrixSubModule):
         rows: int, columns: int, wiring_config: str | None = ""
     ) -> "Callable[[int, int], str]":
         """
-        to select the correct numbering function based on the matrix layout.
+        To select the correct numbering function based on the matrix layout.
         On P168 of the user's guide for Agilent 34934A High Density Matrix
         Module:
         http://literature.cdn.keysight.com/litweb/pdf/34980-90034.pdf
@@ -151,6 +154,7 @@ class Keysight34934A(Keysight34980ASwitchMatrixSubModule):
         Returns:
             The numbering function to convert row and column in to a 3-digit
             number
+
         """
         layout = f"{rows}x{columns}"
         available_layouts = {

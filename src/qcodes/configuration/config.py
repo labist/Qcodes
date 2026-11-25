@@ -18,7 +18,7 @@ EMPTY_USER_SCHEMA = "User schema at {} not found. User settings won't be validat
 MISS_DESC = """ Passing a description without a type does not make sense.
 Description is ignored """
 
-BASE_SCHEMA = {
+BASE_SCHEMA: dict[str, Any] = {
     "$schema": "http://json-schema.org/draft-04/schema#",
     "type": "object",
     "description": "schema for a user qcodes config file",
@@ -27,7 +27,7 @@ BASE_SCHEMA = {
 }
 
 # https://github.com/python/mypy/issues/4182
-_PARENT_MODULE = ".".join(__loader__.name.split(".")[:-1])  # type: ignore[name-defined]
+_PARENT_MODULE = "qcodes.configuration"
 
 
 class Config:
@@ -85,6 +85,7 @@ class Config:
         Args:
             path: Optional path to directory containing
                 a `qcodesrc.json` config file
+
         """
         self._loaded_config_files = [self.default_file_name]
         self._diff_config: dict[str, Any] = {}
@@ -125,6 +126,7 @@ class Config:
         Args:
             path: Optional path to directory containing a `qcodesrc.json`
                config file
+
         """
         config = copy.deepcopy(self.defaults)
         self.current_schema = copy.deepcopy(self.defaults_schema)
@@ -166,6 +168,7 @@ class Config:
             file_path: Path to `qcodesrc.json` config file
             schema: Path to `qcodesrc_schema.json` to be used
             config: Config dictionary to be updated.
+
         """
         if os.path.isfile(file_path):
             self._loaded_config_files.append(file_path)
@@ -190,6 +193,7 @@ class Config:
             schema: schema dictionary
             extra_schema_path: schema path that contains extra validators to be
                 added to schema dictionary
+
         """
         if schema is None:
             if self.current_schema is None:
@@ -266,6 +270,7 @@ class Config:
         Todo:
             - Add enum  support for value_type
             - finish _diffing
+
         """
         if self.current_config is None:
             raise RuntimeError("Cannot add value to empty config")
@@ -323,6 +328,7 @@ class Config:
             a dot accessible dictionary config object
         Raises:
             FileNotFoundError: if config is missing
+
         """
         with open(path) as fp:
             config = json.load(fp)
@@ -338,6 +344,7 @@ class Config:
 
         Args:
             path: path of new file
+
         """
         with open(path, "w") as fp:
             json.dump(self.current_config, fp, indent=4)
@@ -348,6 +355,7 @@ class Config:
 
         Args:
             path: path of new file
+
         """
         with open(path, "w") as fp:
             json.dump(self.current_schema, fp, indent=4)
@@ -374,6 +382,7 @@ class Config:
         Args:
             name: name of entry to describe in 'dotdict' notation,
                 e.g. name="user.scriptfolder"
+
         """
         val = self.current_config
         if val is None:
@@ -483,5 +492,5 @@ def update(d: dict[Any, Any], u: Mapping[Any, Any]) -> dict[Any, Any]:
             r = update(d.get(k, {}), v)
             d[k] = r
         else:
-            d[k] = u[k]
+            d[k] = v
     return d

@@ -5,6 +5,7 @@ from string import ascii_uppercase
 
 import hypothesis.strategies as hst
 import numpy as np
+import numpy.typing as npt
 import pytest
 from hypothesis import HealthCheck, given, settings
 
@@ -329,7 +330,7 @@ def test_cache_1d(
             _assert_parameter_data_is_identical(
                 dataset2.get_parameter_data(), dataset2.cache.data()
             )
-            for i, v in enumerate(setpoints_values):
+            for v in setpoints_values:
                 setpoints_param.set(v)
 
                 meas_vals1 = [(param, param.get()) for param in meas_parameters1]
@@ -697,7 +698,7 @@ def test_cache_complex_array_param_in_1d(
     meas = Measurement()
     if outer_param_type == "numeric":
         outer_param = DAC.ch1
-        outer_setpoints: np.ndarray | list[str] = np.linspace(-1, 1, n_points)
+        outer_setpoints: npt.NDArray | list[str] = np.linspace(-1, 1, n_points)
         outer_storage_type = storage_type
     else:
         outer_param = channel_array_instrument.A.dummy_text
@@ -717,7 +718,7 @@ def test_cache_complex_array_param_in_1d(
             n_rows_written = i + 1
 
             if array_used:
-                expected_shape = (n_rows_written,) + param.shape
+                expected_shape = (n_rows_written, *param.shape)
             else:
                 expected_shape = n_rows_written * np.prod(param.shape)
             assert data[param.full_name][param.full_name].shape == expected_shape
@@ -808,7 +809,7 @@ def test_cache_1d_shape(
         _assert_parameter_data_is_identical(
             dataset.get_parameter_data(), dataset.cache.data()
         )
-        for i, v in enumerate(setpoints_values):
+        for v in setpoints_values:
             n_points_measured += 1
             setpoints_param.set(v)
 
@@ -883,7 +884,7 @@ def test_cache_2d_shape(
     if cache_size == "too_small":
         meas.set_shapes(
             detect_shape_of_measurement(
-                meas_parameters, (int(ceil(n_points_outer / 2)), n_points_inner)
+                meas_parameters, (ceil(n_points_outer / 2), n_points_inner)
             )
         )
     elif cache_size == "too_large":
@@ -1069,8 +1070,8 @@ def _assert_parameter_data_is_identical(
     # when serializing float types
     approx_kinds = ("f", "c")
 
-    for outer_key in expected.keys():
-        expected_inner = expected[outer_key]
+    for outer_key, outer_val in expected.items():
+        expected_inner = outer_val
         actual_inner = actual[outer_key]
         assert expected_inner.keys() == actual_inner.keys()
         for inner_key in expected_inner.keys():

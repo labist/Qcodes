@@ -1,7 +1,6 @@
 import logging
 
 import hypothesis.strategies as hst
-import matplotlib
 import matplotlib.axes
 import matplotlib.pyplot as plt
 import numpy as np
@@ -45,7 +44,7 @@ def test_do1d_plot(_param_set, _param, plot, plot_config) -> None:
 
     output = do1d(_param_set, start, stop, num_points, 0, _param, do_plot=plot)
     assert len(output[1]) == 1
-    if plot is True or plot is None and plot_config is True:
+    if plot is True or (plot is None and plot_config is True):
         assert isinstance(output[1][0], matplotlib.axes.Axes)
     else:
         assert output[1][0] is None
@@ -92,7 +91,7 @@ def test_do1d_output_data(_param, _param_set) -> None:
     exp = do1d(_param_set, start, stop, num_points, delay, _param)
     data = exp[0]
 
-    assert data.description.interdeps.names == (_param.name, _param_set.name)
+    assert set(data.description.interdeps.names) == {_param.name, _param_set.name}
     loaded_data = data.get_parameter_data()["simple_parameter"]
 
     np.testing.assert_array_equal(loaded_data[_param.name], np.ones(5))
@@ -144,8 +143,8 @@ def test_do1d_verify_shape(
     )
     expected_shapes = {}
     for i, name in enumerate(multiparam.full_names):
-        expected_shapes[name] = (num_points,) + tuple(multiparam.shapes[i])
-    expected_shapes["arrayparam"] = (num_points,) + tuple(arrayparam.shape)
+        expected_shapes[name] = (num_points, *tuple(multiparam.shapes[i]))
+    expected_shapes["arrayparam"] = (num_points, *tuple(arrayparam.shape))
     expected_shapes["simple_parameter"] = (num_points,)
     expected_shapes["simple_complex_parameter"] = (num_points,)
     expected_shapes[paramwsetpoints.full_name] = (num_points, n_points_pws)

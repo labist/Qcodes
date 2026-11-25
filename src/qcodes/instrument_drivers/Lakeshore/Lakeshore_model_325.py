@@ -3,11 +3,7 @@ from itertools import takewhile
 from typing import (
     TYPE_CHECKING,
     Any,
-    Literal,
-    SupportsBytes,
-    SupportsIndex,
     TextIO,
-    cast,
 )
 
 from qcodes.instrument import (
@@ -23,7 +19,9 @@ from qcodes.validators import Enum, Numbers
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from typing_extensions import Buffer, Self, Unpack
+    from typing_extensions import Unpack
+
+    from qcodes.instrument.channel import ChannelTuple
 
 
 def _read_curve_file(curve_file: TextIO) -> dict[Any, Any]:
@@ -95,60 +93,6 @@ class LakeshoreModel325Status(IntFlag):
     temp_overrange = 32
     temp_underrange = 16
     invalid_reading = 1
-
-    # we reimplement from_bytes and to_bytes in order to fix docstrings that are incorrectly formatted
-    # this in turn will enable us to build docs with warnings as errors.
-    # This can be removed for python versions where https://github.com/python/cpython/pull/117847
-    # is merged
-    @classmethod
-    def from_bytes(
-        cls,
-        bytes: "Iterable[SupportsIndex] | SupportsBytes | Buffer",
-        byteorder: Literal["big", "little"] = "big",
-        *,
-        signed: bool = False,
-    ) -> "Self":
-        """
-        Return the integer represented by the given array of bytes.
-
-        Args:
-            bytes: Holds the array of bytes to convert.  The argument must either
-                support the buffer protocol or be an iterable object producing bytes.
-                Bytes and bytearray are examples of built-in objects that support the
-                buffer protocol.
-            byteorder: The byte order used to represent the integer.  If byteorder is 'big',
-                the most significant byte is at the beginning of the byte array.  If
-                byteorder is 'little', the most significant byte is at the end of the
-                byte array.  To request the native byte order of the host system, use
-                `sys.byteorder` as the byte order value.  Default is to use 'big'.
-            signed: Indicates whether two\'s complement is used to represent the integer.
-        """
-        return super().from_bytes(bytes, byteorder, signed=signed)
-
-    def to_bytes(
-        self,
-        length: SupportsIndex = 1,
-        byteorder: Literal["little", "big"] = "big",
-        *,
-        signed: bool = False,
-    ) -> bytes:
-        """
-        Return an array of bytes representing an integer.
-
-        Args:
-            length: Length of bytes object to use.  An OverflowError is raised if the
-                integer is not representable with the given number of bytes.  Default
-                is length 1.
-            byteorder: The byte order used to represent the integer.  If byteorder is \'big\',
-                the most significant byte is at the beginning of the byte array.  If
-                byteorder is \'little\', the most significant byte is at the end of the
-                byte array. To request the native byte order of the host system, use
-                `sys.byteorder` as the byte order value.  Default is to use \'big\'.
-            signed: Determines whether two\'s complement is used to represent the integer.
-                If signed is False and a negative integer is given, an OverflowError
-                is raised.
-        """
-        return super().to_bytes(length, byteorder, signed=signed)
 
 
 class LakeshoreModel325Curve(InstrumentChannel):
@@ -279,6 +223,7 @@ class LakeshoreModel325Curve(InstrumentChannel):
                                 dictionary
             sensor_unit (str): If None, the data dict is validated and the
                                 units are extracted.
+
         """
         if sensor_unit is None:
             sensor_unit = self.validate_datadict(data_dict)
@@ -297,7 +242,7 @@ class LakeshoreModel325Curve(InstrumentChannel):
             self.write(cmd_str)
 
 
-class LakeshoreModel325Sensor(InstrumentChannel):
+class LakeshoreModel325Sensor(InstrumentChannel["LakeshoreModel325"]):
     """
     InstrumentChannel for a single sensor of a Lakeshore Model 325.
 
@@ -305,6 +250,7 @@ class LakeshoreModel325Sensor(InstrumentChannel):
         parent (LakeshoreModel325): The instrument this heater belongs to
         name (str)
         inp (str): Either "A" or "B"
+
     """
 
     def __init__(
@@ -389,8 +335,7 @@ class LakeshoreModel325Sensor(InstrumentChannel):
 
     @property
     def curve(self) -> LakeshoreModel325Curve:
-        parent = cast(LakeshoreModel325, self.parent)
-        return LakeshoreModel325Curve(parent, self.curve_index())
+        return LakeshoreModel325Curve(self.parent, self.curve_index())
 
 
 class LakeshoreModel325Heater(InstrumentChannel):
@@ -409,6 +354,7 @@ class LakeshoreModel325Heater(InstrumentChannel):
             name: Name of the Channel
             loop: Either 1 or 2
             **kwargs: Forwarded to baseclass.
+
         """
 
         if loop not in [1, 2]:
@@ -574,26 +520,48 @@ class LakeshoreModel325(VisaInstrument):
         super().__init__(name, address, **kwargs)
 
         sensors = ChannelList(
-            self, "sensor", LakeshoreModel325Sensor, snapshotable=False
+            self,
+            "sensor",
+            LakeshoreModel325Sensor,
+            snapshotable=False,
         )
 
-        for inp in ["A", "B"]:
-            sensor = LakeshoreModel325Sensor(self, f"sensor_{inp}", inp)
-            sensors.append(sensor)
-            self.add_submodule(f"sensor_{inp}", sensor)
+        self.sensor_A: LakeshoreModel325Sensor = self.add_submodule(
+            "sensor_A", LakeshoreModel325Sensor(self, "sensor_A", "A")
+        )
+        """Sensor A"""
+        sensors.append(self.sensor_A)
+        self.sensor_B: LakeshoreModel325Sensor = self.add_submodule(
+            "sensor_B", LakeshoreModel325Sensor(self, "sensor_B", "B")
+        )
+        """Sensor B"""
+        sensors.append(self.sensor_B)
 
-        self.add_submodule("sensor", sensors.to_channel_tuple())
+        self.sensor: ChannelTuple[LakeshoreModel325Sensor] = self.add_submodule(
+            "sensor", sensors.to_channel_tuple()
+        )
+        """ChannelTuple of sensors"""
 
         heaters = ChannelList(
             self, "heater", LakeshoreModel325Heater, snapshotable=False
         )
 
-        for loop in [1, 2]:
-            heater = LakeshoreModel325Heater(self, f"heater_{loop}", loop)
-            heaters.append(heater)
-            self.add_submodule(f"heater_{loop}", heater)
+        self.heater_1: LakeshoreModel325Heater = self.add_submodule(
+            "heater_1", LakeshoreModel325Heater(self, "heater_1", 1)
+        )
+        """Heater 1"""
+        heaters.append(self.heater_1)
 
-        self.add_submodule("heater", heaters.to_channel_tuple())
+        self.heater_2: LakeshoreModel325Heater = self.add_submodule(
+            "heater_2", LakeshoreModel325Heater(self, "heater_2", 2)
+        )
+        """Heater 2"""
+        heaters.append(self.heater_2)
+
+        self.heater: ChannelTuple[LakeshoreModel325Heater] = self.add_submodule(
+            "heater", heaters.to_channel_tuple()
+        )
+        """ChannelTuple of heaters"""
 
         curves = ChannelList(self, "curve", LakeshoreModel325Curve, snapshotable=False)
 
@@ -601,7 +569,10 @@ class LakeshoreModel325(VisaInstrument):
             curve = LakeshoreModel325Curve(self, curve_index)
             curves.append(curve)
 
-        self.add_submodule("curve", curves)
+        self.curve: ChannelList[LakeshoreModel325Curve] = self.add_submodule(
+            "curve", curves
+        )
+        """ChannelList of curves"""
 
         self.connect_message()
 
@@ -617,6 +588,7 @@ class LakeshoreModel325(VisaInstrument):
              name: Name of the curve
              serial_number: Serial number of the curve
              data_dict: A dictionary containing the curve data
+
         """
         if index not in range(21, 36):
             raise ValueError("index value should be between 21 and 35")

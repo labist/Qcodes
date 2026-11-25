@@ -52,6 +52,7 @@ def _signal_parser(our_scaling: float, response: str) -> float:
         our_scaling: Whatever scale we might need to apply to get from
             e.g. A/min to A/s.
         response: What comes back from instrument.ask
+
     """
 
     # there might be a scale before the unit. We only want to deal in SI
@@ -73,6 +74,17 @@ def _signal_parser(our_scaling: float, response: str) -> float:
     return float(digits) * their_scaling * our_scaling
 
 
+def _temp_parser(response: str) -> float:
+    """
+    Parse a response string into a correct SI temperature value.
+
+    Args:
+        response: What comes back from instrument.ask
+
+    """
+    return float(response.rsplit(":", maxsplit=1)[-1][:-1])
+
+
 class OxfordMercuryWorkerPS(InstrumentChannel):
     """
     Class to hold a worker power supply for the Oxford MercuryiPS
@@ -92,6 +104,7 @@ class OxfordMercuryWorkerPS(InstrumentChannel):
             UID: The UID as used internally by the MercuryiPS, e.g.
                 'GRPX'
             **kwargs: Forwarded to base class.
+
         """
         if ":" in UID:
             raise ValueError(
@@ -108,6 +121,15 @@ class OxfordMercuryWorkerPS(InstrumentChannel):
             self.psu_string = "SPSU"
         else:
             self.psu_string = "PSU"
+
+        self.heater_switch: Parameter = self.add_parameter(
+            "heater_switch",
+            label="Heater switch status/set",
+            get_cmd=partial(self._param_getter, "SIG:SWHT"),
+            set_cmd=partial(self._param_setter, "SIG:SWHT"),
+            get_parser=_response_preparser,
+        )
+        """Parameter heater switch"""
 
         self.voltage: Parameter = self.add_parameter(
             "voltage",
@@ -251,6 +273,7 @@ class OxfordMercuryWorkerPS(InstrumentChannel):
 
         Returns:
             The response. Cf. MercuryiPS.ask for how much is returned
+
         """
         dressed_cmd = f"READ:DEV:{self.uid}:{self.psu_string}:{get_cmd}"
 
@@ -265,6 +288,7 @@ class OxfordMercuryWorkerPS(InstrumentChannel):
         Args:
             set_cmd: raw string for the command, e.g. 'SIG:FSET'
             value: Value to set
+
         """
         dressed_cmd = f"SET:DEV:{self.uid}:{self.psu_string}:{set_cmd}:{value}"
         # the instrument always very verbosely responds
@@ -308,6 +332,7 @@ class OxfordMercuryiPS(VisaInstrument):
                 return a boolean describing whether that field value is
                 acceptable.
             **kwargs: kwargs are forwarded to base class.
+
         """
 
         if field_limits is not None and not (callable(field_limits)):
@@ -358,6 +383,39 @@ class OxfordMercuryiPS(VisaInstrument):
                     docstring='Ramp coordinate only, leave others untouched',
                     get_cmd=partial(self._simple_get, coord),
                     set_cmd=partial(self._simple_blk, coord))
+        self._magnet_temp_addr = "DEV:MB1.T1:TEMP"
+        self._pt1_temp_addr = "DEV:DB8.T1:TEMP"
+        self._pt2_temp_addr = "DEV:DB7.T1:TEMP"
+
+        self.magnet_temp: Parameter = self.add_parameter(
+            name="magnet_temp",
+            label="Magnet Temperature",
+            unit="K",
+            docstring="Temperature of the magnet sensor",
+            get_cmd="READ:" + self._magnet_temp_addr + ":SIG:TEMP?",
+            get_parser=_temp_parser,
+        )
+        """Parameter magnet temperature"""
+
+        self.pt1_temp: Parameter = self.add_parameter(
+            name="pt1_temp",
+            label="pt1 Temperature",
+            unit="K",
+            docstring="Temperature of the pt1",
+            get_cmd="READ:" + self._pt1_temp_addr + ":SIG:TEMP?",
+            get_parser=_temp_parser,
+        )
+        """Parameter pt1 temperature"""
+
+        self.pt2_temp: Parameter = self.add_parameter(
+            name="pt2_temp",
+            label="pt2 Temperature",
+            unit="K",
+            docstring="Temperature of the pt2",
+            get_cmd="READ:" + self._pt2_temp_addr + ":SIG:TEMP?",
+            get_parser=_temp_parser,
+        )
+        """Parameter pt2 temperature"""
 
         for coord, unit in zip(
             ["x", "y", "z", "r", "theta", "phi", "rho"],
@@ -392,8 +450,7 @@ class OxfordMercuryiPS(VisaInstrument):
                     name=f"{coord}_simulramp",
                     label=f"{coord.upper()} ramp field",
                     unit=unit,
-                    docstring="A simultaneous blocking ramp for"
-                    " a combined coordinate",
+                    docstring="A simultaneous blocking ramp for a combined coordinate",
                     get_cmd=partial(self._get_component, coord),
                     set_cmd=partial(self._set_target_and_ramp, coord, "simul_block"),
                 )
@@ -501,6 +558,7 @@ class OxfordMercuryiPS(VisaInstrument):
 
         Returns:
             The normal IDN dict
+
         """
         raw_idn_string = self.ask("*IDN?")
         resps = raw_idn_string.split(":")
@@ -596,6 +654,7 @@ class OxfordMercuryiPS(VisaInstrument):
         Args:
             limit_func: must be a function mapping (Bx, By, Bz) -> True/False
               where True means that the field is INSIDE the allowed region
+
         """
 
         # first check that the current target is allowed
@@ -620,6 +679,7 @@ class OxfordMercuryiPS(VisaInstrument):
               exceeded. In 'safe' mode, the fields are ramped one-by-one in a
               blocking way that ensures that the total field stays within the
               safe region (provided that this region is convex).
+
         """
         if mode not in ["simul", "safe", "simul_block"]:
             raise ValueError(
@@ -629,7 +689,7 @@ class OxfordMercuryiPS(VisaInstrument):
 
         meas_vals = self._get_measured(["x", "y", "z"])
         # we asked for three coordinates, so we know that we got a list
-        meas_vals = cast(list[float], meas_vals)
+        meas_vals = cast("list[float]", meas_vals)
 
         for cur, worker in zip(meas_vals, self.submodules.values()):
             if not isinstance(worker, OxfordMercuryWorkerPS):
@@ -703,6 +763,7 @@ class OxfordMercuryiPS(VisaInstrument):
 
         Args:
             cmd: the command to send to the instrument
+
         """
 
         visalog.debug(f"Writing to instrument {self.name}: {cmd}")

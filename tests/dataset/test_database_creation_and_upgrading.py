@@ -4,6 +4,7 @@ import os
 from contextlib import contextmanager
 from copy import deepcopy
 
+import numpy as np
 import pytest
 from pytest import LogCaptureFixture
 
@@ -11,7 +12,6 @@ import qcodes as qc
 import qcodes.dataset.descriptions.versioning.serialization as serial
 import tests.dataset
 from qcodes.dataset import (
-    ConnectionPlus,
     connect,
     initialise_database,
     initialise_or_create_database_at,
@@ -23,10 +23,10 @@ from qcodes.dataset import (
 )
 from qcodes.dataset.data_set import DataSet
 from qcodes.dataset.descriptions.dependencies import InterDependencies_
-from qcodes.dataset.descriptions.param_spec import ParamSpecBase
 from qcodes.dataset.descriptions.versioning.v0 import InterDependencies
 from qcodes.dataset.guids import parse_guid
-from qcodes.dataset.sqlite.connection import atomic_transaction
+from qcodes.dataset.measurements import Measurement
+from qcodes.dataset.sqlite.connection import AtomicConnection, atomic_transaction
 from qcodes.dataset.sqlite.database import get_db_version_and_newest_available_version
 from qcodes.dataset.sqlite.db_upgrades import (
     _latest_available_version,
@@ -48,6 +48,7 @@ from qcodes.dataset.sqlite.query_helpers import (
     is_column_in_table,
     one,
 )
+from qcodes.parameters import Parameter, ParamSpecBase
 from tests.common import error_caused_by, skip_if_no_fixtures
 from tests.dataset.conftest import temporarily_copied_DB
 
@@ -76,14 +77,14 @@ VERSIONS = tuple(range(LATEST_VERSION + 1))
 LATEST_VERSION_ARG = -1
 
 
-@pytest.mark.parametrize("ver", VERSIONS + (LATEST_VERSION_ARG,))
+@pytest.mark.parametrize("ver", (*VERSIONS, LATEST_VERSION_ARG))
 def test_connect_upgrades_user_version(ver) -> None:
     expected_version = ver if ver != LATEST_VERSION_ARG else LATEST_VERSION
     conn = connect(":memory:", version=ver)
     assert expected_version == get_user_version(conn)
 
 
-@pytest.mark.parametrize("version", VERSIONS + (LATEST_VERSION_ARG,))
+@pytest.mark.parametrize("version", (*VERSIONS, LATEST_VERSION_ARG))
 def test_tables_exist(empty_temp_db, version) -> None:
     conn = connect(
         qc.config["core"]["db_location"], qc.config["core"]["db_debug"], version=version
@@ -266,7 +267,7 @@ def test_perform_actual_upgrade_2_to_3_some_runs() -> None:
         # tests/dataset/legacy_DB_generation/generate_version_2.py
         # are recovered
 
-        p0 = [p for p in idp.paramspecs if p.name == "p0"][0]
+        p0 = next(p for p in idp.paramspecs if p.name == "p0")
         assert p0.depends_on == ""
         assert p0.depends_on_ == []
         assert p0.inferred_from == ""
@@ -274,7 +275,7 @@ def test_perform_actual_upgrade_2_to_3_some_runs() -> None:
         assert p0.label == "Parameter 0"
         assert p0.unit == "unit 0"
 
-        p1 = [p for p in idp.paramspecs if p.name == "p1"][0]
+        p1 = next(p for p in idp.paramspecs if p.name == "p1")
         assert p1.depends_on == ""
         assert p1.depends_on_ == []
         assert p1.inferred_from == ""
@@ -282,7 +283,7 @@ def test_perform_actual_upgrade_2_to_3_some_runs() -> None:
         assert p1.label == "Parameter 1"
         assert p1.unit == "unit 1"
 
-        p2 = [p for p in idp.paramspecs if p.name == "p2"][0]
+        p2 = next(p for p in idp.paramspecs if p.name == "p2")
         assert p2.depends_on == ""
         assert p2.depends_on_ == []
         assert p2.inferred_from == "p0"
@@ -290,7 +291,7 @@ def test_perform_actual_upgrade_2_to_3_some_runs() -> None:
         assert p2.label == "Parameter 2"
         assert p2.unit == "unit 2"
 
-        p3 = [p for p in idp.paramspecs if p.name == "p3"][0]
+        p3 = next(p for p in idp.paramspecs if p.name == "p3")
         assert p3.depends_on == ""
         assert p3.depends_on_ == []
         assert p3.inferred_from == "p1, p0"
@@ -298,7 +299,7 @@ def test_perform_actual_upgrade_2_to_3_some_runs() -> None:
         assert p3.label == "Parameter 3"
         assert p3.unit == "unit 3"
 
-        p4 = [p for p in idp.paramspecs if p.name == "p4"][0]
+        p4 = next(p for p in idp.paramspecs if p.name == "p4")
         assert p4.depends_on == "p2, p3"
         assert p4.depends_on_ == ["p2", "p3"]
         assert p4.inferred_from == ""
@@ -306,7 +307,7 @@ def test_perform_actual_upgrade_2_to_3_some_runs() -> None:
         assert p4.label == "Parameter 4"
         assert p4.unit == "unit 4"
 
-        p5 = [p for p in idp.paramspecs if p.name == "p5"][0]
+        p5 = next(p for p in idp.paramspecs if p.name == "p5")
         assert p5.depends_on == ""
         assert p5.depends_on_ == []
         assert p5.inferred_from == "p0"
@@ -343,7 +344,7 @@ def test_perform_upgrade_v2_v3_to_v4_fixes() -> None:
 
         assert isinstance(idp, InterDependencies)
 
-        p0 = [p for p in idp.paramspecs if p.name == "p0"][0]
+        p0 = next(p for p in idp.paramspecs if p.name == "p0")
         assert p0.depends_on == ""
         assert p0.depends_on_ == []
         assert p0.inferred_from == ""
@@ -351,7 +352,7 @@ def test_perform_upgrade_v2_v3_to_v4_fixes() -> None:
         assert p0.label == "Parameter 0"
         assert p0.unit == "unit 0"
 
-        p1 = [p for p in idp.paramspecs if p.name == "p1"][0]
+        p1 = next(p for p in idp.paramspecs if p.name == "p1")
         assert p1.depends_on == ""
         assert p1.depends_on_ == []
         assert p1.inferred_from == ""
@@ -359,7 +360,7 @@ def test_perform_upgrade_v2_v3_to_v4_fixes() -> None:
         assert p1.label == "Parameter 1"
         assert p1.unit == "unit 1"
 
-        p2 = [p for p in idp.paramspecs if p.name == "p2"][0]
+        p2 = next(p for p in idp.paramspecs if p.name == "p2")
         assert p2.depends_on == ""
         assert p2.depends_on_ == []
         # the 2 lines below are wrong due to the incorrect upgrade from
@@ -369,7 +370,7 @@ def test_perform_upgrade_v2_v3_to_v4_fixes() -> None:
         assert p2.label == "Parameter 2"
         assert p2.unit == "unit 2"
 
-        p3 = [p for p in idp.paramspecs if p.name == "p3"][0]
+        p3 = next(p for p in idp.paramspecs if p.name == "p3")
         assert p3.depends_on == ""
         assert p3.depends_on_ == []
         # the 2 lines below are wrong due to the incorrect upgrade from
@@ -379,7 +380,7 @@ def test_perform_upgrade_v2_v3_to_v4_fixes() -> None:
         assert p3.label == "Parameter 3"
         assert p3.unit == "unit 3"
 
-        p4 = [p for p in idp.paramspecs if p.name == "p4"][0]
+        p4 = next(p for p in idp.paramspecs if p.name == "p4")
         assert p4.depends_on == "p2, p3"
         assert p4.depends_on_ == ["p2", "p3"]
         assert p4.inferred_from == ""
@@ -387,7 +388,7 @@ def test_perform_upgrade_v2_v3_to_v4_fixes() -> None:
         assert p4.label == "Parameter 4"
         assert p4.unit == "unit 4"
 
-        p5 = [p for p in idp.paramspecs if p.name == "p5"][0]
+        p5 = next(p for p in idp.paramspecs if p.name == "p5")
         assert p5.depends_on == ""
         assert p5.depends_on_ == []
         # the 2 lines below are wrong due to the incorrect upgrade from
@@ -407,7 +408,7 @@ def test_perform_upgrade_v2_v3_to_v4_fixes() -> None:
 
         assert isinstance(idp, InterDependencies)
 
-        p0 = [p for p in idp.paramspecs if p.name == "p0"][0]
+        p0 = next(p for p in idp.paramspecs if p.name == "p0")
         assert p0.depends_on == ""
         assert p0.depends_on_ == []
         assert p0.inferred_from == ""
@@ -415,7 +416,7 @@ def test_perform_upgrade_v2_v3_to_v4_fixes() -> None:
         assert p0.label == "Parameter 0"
         assert p0.unit == "unit 0"
 
-        p1 = [p for p in idp.paramspecs if p.name == "p1"][0]
+        p1 = next(p for p in idp.paramspecs if p.name == "p1")
         assert p1.depends_on == ""
         assert p1.depends_on_ == []
         assert p1.inferred_from == ""
@@ -423,7 +424,7 @@ def test_perform_upgrade_v2_v3_to_v4_fixes() -> None:
         assert p1.label == "Parameter 1"
         assert p1.unit == "unit 1"
 
-        p2 = [p for p in idp.paramspecs if p.name == "p2"][0]
+        p2 = next(p for p in idp.paramspecs if p.name == "p2")
         assert p2.depends_on == ""
         assert p2.depends_on_ == []
         assert p2.inferred_from == "p0"
@@ -431,7 +432,7 @@ def test_perform_upgrade_v2_v3_to_v4_fixes() -> None:
         assert p2.label == "Parameter 2"
         assert p2.unit == "unit 2"
 
-        p3 = [p for p in idp.paramspecs if p.name == "p3"][0]
+        p3 = next(p for p in idp.paramspecs if p.name == "p3")
         assert p3.depends_on == ""
         assert p3.depends_on_ == []
         assert p3.inferred_from == "p1, p0"
@@ -439,7 +440,7 @@ def test_perform_upgrade_v2_v3_to_v4_fixes() -> None:
         assert p3.label == "Parameter 3"
         assert p3.unit == "unit 3"
 
-        p4 = [p for p in idp.paramspecs if p.name == "p4"][0]
+        p4 = next(p for p in idp.paramspecs if p.name == "p4")
         assert p4.depends_on == "p2, p3"
         assert p4.depends_on_ == ["p2", "p3"]
         assert p4.inferred_from == ""
@@ -447,7 +448,7 @@ def test_perform_upgrade_v2_v3_to_v4_fixes() -> None:
         assert p4.label == "Parameter 4"
         assert p4.unit == "unit 4"
 
-        p5 = [p for p in idp.paramspecs if p.name == "p5"][0]
+        p5 = next(p for p in idp.paramspecs if p.name == "p5")
         assert p5.depends_on == ""
         assert p5.depends_on_ == []
         assert p5.inferred_from == "p0"
@@ -486,7 +487,7 @@ def test_perform_upgrade_v3_to_v4() -> None:
 
         assert isinstance(idp, InterDependencies)
 
-        p0 = [p for p in idp.paramspecs if p.name == "p0"][0]
+        p0 = next(p for p in idp.paramspecs if p.name == "p0")
         assert p0.depends_on == ""
         assert p0.depends_on_ == []
         assert p0.inferred_from == ""
@@ -494,7 +495,7 @@ def test_perform_upgrade_v3_to_v4() -> None:
         assert p0.label == "Parameter 0"
         assert p0.unit == "unit 0"
 
-        p1 = [p for p in idp.paramspecs if p.name == "p1"][0]
+        p1 = next(p for p in idp.paramspecs if p.name == "p1")
         assert p1.depends_on == ""
         assert p1.depends_on_ == []
         assert p1.inferred_from == ""
@@ -502,7 +503,7 @@ def test_perform_upgrade_v3_to_v4() -> None:
         assert p1.label == "Parameter 1"
         assert p1.unit == "unit 1"
 
-        p2 = [p for p in idp.paramspecs if p.name == "p2"][0]
+        p2 = next(p for p in idp.paramspecs if p.name == "p2")
         assert p2.depends_on == ""
         assert p2.depends_on_ == []
         assert p2.inferred_from == "p0"
@@ -510,7 +511,7 @@ def test_perform_upgrade_v3_to_v4() -> None:
         assert p2.label == "Parameter 2"
         assert p2.unit == "unit 2"
 
-        p3 = [p for p in idp.paramspecs if p.name == "p3"][0]
+        p3 = next(p for p in idp.paramspecs if p.name == "p3")
         assert p3.depends_on == ""
         assert p3.depends_on_ == []
         assert p3.inferred_from == "p1, p0"
@@ -518,7 +519,7 @@ def test_perform_upgrade_v3_to_v4() -> None:
         assert p3.label == "Parameter 3"
         assert p3.unit == "unit 3"
 
-        p4 = [p for p in idp.paramspecs if p.name == "p4"][0]
+        p4 = next(p for p in idp.paramspecs if p.name == "p4")
         assert p4.depends_on == "p2, p3"
         assert p4.depends_on_ == ["p2", "p3"]
         assert p4.inferred_from == ""
@@ -526,7 +527,7 @@ def test_perform_upgrade_v3_to_v4() -> None:
         assert p4.label == "Parameter 4"
         assert p4.unit == "unit 4"
 
-        p5 = [p for p in idp.paramspecs if p.name == "p5"][0]
+        p5 = next(p for p in idp.paramspecs if p.name == "p5")
         assert p5.depends_on == ""
         assert p5.depends_on_ == []
         assert p5.inferred_from == "p0"
@@ -703,7 +704,7 @@ def test_perform_actual_upgrade_6_to_7() -> None:
     skip_if_no_fixtures(dbname_old)
 
     with temporarily_copied_DB(dbname_old, debug=False, version=6) as conn:
-        assert isinstance(conn, ConnectionPlus)
+        assert isinstance(conn, AtomicConnection)
         perform_db_upgrade_6_to_7(conn)
         assert get_user_version(conn) == 7
 
@@ -749,10 +750,6 @@ def test_perform_actual_upgrade_6_to_newest_add_new_data() -> None:
     Insert new runs on top of existing runs upgraded and verify that they
     get the correct captured_run_id and captured_counter
     """
-    import numpy as np
-
-    from qcodes.dataset.measurements import Measurement
-    from qcodes.parameters import Parameter
 
     fixpath = os.path.join(fixturepath, "db_files", "version6")
 
@@ -762,7 +759,7 @@ def test_perform_actual_upgrade_6_to_newest_add_new_data() -> None:
     skip_if_no_fixtures(dbname_old)
 
     with temporarily_copied_DB(dbname_old, debug=False, version=6) as conn:
-        assert isinstance(conn, ConnectionPlus)
+        assert isinstance(conn, AtomicConnection)
         perform_db_upgrade(conn)
         assert get_user_version(conn) >= 7
         no_of_runs_query = "SELECT max(run_id) FROM runs"

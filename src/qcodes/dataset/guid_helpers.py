@@ -26,6 +26,7 @@ def guids_from_dbs(
     Returns:
         Tuple of Dictionary mapping paths to lists of guids as strings
         and Dictionary mapping guids to db paths.
+
     """
     dbdict = {}
     for p in db_paths:
@@ -57,6 +58,7 @@ def guids_from_dir(
     Returns:
         Tuple of Dictionary mapping paths to lists of guids as strings
         and Dictionary mapping guids to db paths.
+
     """
     return guids_from_dbs(Path(basepath).glob("**/*.db"))
 
@@ -66,7 +68,8 @@ def guids_from_list_str(s: str) -> tuple[str, ...] | None:
     Get tuple of guids from a python/json string representation of a list.
 
     Extracts the guids from a string representation of a list, tuple,
-    or set of guids or a single guid.
+    or set of guids or a single guid. Any None str members are dropped from the
+    collection.
 
     Args:
         s: input string
@@ -83,6 +86,7 @@ def guids_from_list_str(s: str) -> tuple[str, ...] | None:
         will return
         ('07fd7195-c51e-44d6-a085-fa8274cf00d6',
         '070d7195-c51e-44d6-a085-fa8274cf00d6')
+
     """
     if s == "":
         return tuple()
@@ -104,7 +108,7 @@ def guids_from_list_str(s: str) -> tuple[str, ...] | None:
     parsed = parsed_expression.body
 
     if isinstance(parsed, ast.Constant):
-        if len(parsed.value) > 0:
+        if isinstance(parsed.value, str) and len(parsed.value) > 0:
             return (parsed.value,)
         else:
             return tuple()
@@ -115,5 +119,5 @@ def guids_from_list_str(s: str) -> tuple[str, ...] | None:
     if not all(isinstance(e, ast.Constant) for e in parsed.elts):
         return None
 
-    str_elts = cast(tuple[ast.Constant, ...], tuple(parsed.elts))
-    return tuple(s.value for s in str_elts)
+    str_elts = cast("tuple[ast.Constant, ...]", tuple(parsed.elts))
+    return tuple(s.value for s in str_elts if isinstance(s.value, str))

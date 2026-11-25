@@ -143,6 +143,7 @@ class MockAMI430:
             rval (string or None): If the type of message requests a
                 value (a get message) then this value is returned by this
                 function. A set message will return a None value.
+
         """
 
         # A "get" message ends with a "?" and will invoke the get
@@ -160,7 +161,9 @@ class MockAMI430:
 
             handler = self.handlers[key][gs]
             if callable(handler):
-                rval = handler(args)
+                # some of the callables in the dict does not take arguments.
+                # ignore that warning for now since this is mock code only
+                rval = handler(args)  # pyright: ignore[reportCallIssue]
             else:
                 rval = handler
 

@@ -3,7 +3,6 @@ These are the basic black box tests for the doNd functions.
 """
 
 import hypothesis.strategies as hst
-import matplotlib
 import matplotlib.axes
 import matplotlib.pyplot as plt
 import numpy as np
@@ -88,7 +87,7 @@ def test_do2d_plot(_param_set, _param_set_2, _param, plot, plot_config) -> None:
     )
 
     assert len(output[1]) == 1
-    if plot is True or plot is None and plot_config is True:
+    if plot is True or (plot is None and plot_config is True):
         assert isinstance(output[1][0], matplotlib.axes.Axes)
     else:
         assert output[1][0] is None
@@ -247,11 +246,15 @@ def test_do2d_verify_shape(
     )
     expected_shapes = {}
     for i, name in enumerate(multiparam.full_names):
-        expected_shapes[name] = (num_points_p1, num_points_p2) + tuple(
-            multiparam.shapes[i]
+        expected_shapes[name] = (
+            num_points_p1,
+            num_points_p2,
+            *tuple(multiparam.shapes[i]),
         )
-    expected_shapes["arrayparam"] = (num_points_p1, num_points_p2) + tuple(
-        arrayparam.shape
+    expected_shapes["arrayparam"] = (
+        num_points_p1,
+        num_points_p2,
+        *tuple(arrayparam.shape),
     )
     expected_shapes["simple_parameter"] = (num_points_p1, num_points_p2)
     expected_shapes["simple_complex_parameter"] = (num_points_p1, num_points_p2)

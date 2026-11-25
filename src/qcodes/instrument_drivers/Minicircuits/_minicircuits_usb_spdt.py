@@ -52,12 +52,13 @@ class MiniCircuitsUsbSPDT(MiniCircuitsSPDTBase):
             serial_number: the serial number of the device
                 (printed on the sticker on the back side, without s/n)
             kwargs: kwargs to be passed to Instrument class.
+
         """
         # import .net exception so we can catch it below
         # we keep this import local so that the module can be imported
         # without a working .net install
         clr.AddReference("System.IO")
-        from System.IO import (  # pyright: ignore[reportMissingImports]
+        from System.IO import (  # pyright: ignore[reportMissingImports]  # noqa: PLC0415
             FileNotFoundException,
         )
 
@@ -81,9 +82,9 @@ class MiniCircuitsUsbSPDT(MiniCircuitsSPDTBase):
                 in the bottom. Check that your python installation is 64bit."""
             )
         try:
-            import mcl_RF_Switch_Controller64 as mw_driver  # pyright: ignore[reportMissingImports]
+            import mcl_RF_Switch_Controller64 as mw_driver  # pyright: ignore[reportMissingImports]# noqa: PLC0415
         except ImportError:
-            import mcl_RF_Switch_Controller_NET45 as mw_driver  # pyright: ignore[reportMissingImports]
+            import mcl_RF_Switch_Controller_NET45 as mw_driver  # pyright: ignore[reportMissingImports]# noqa: PLC0415
 
         self.switch = mw_driver.USB_RF_SwitchBox()
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import numbers
 import time
 import warnings
 from collections import defaultdict
@@ -12,7 +11,7 @@ from typing import TYPE_CHECKING, ClassVar, Concatenate, TypeVar, cast
 
 import numpy as np
 from pyvisa import VisaIOError
-from typing_extensions import ParamSpec, deprecated
+from typing_extensions import ParamSpec
 
 from qcodes.instrument import (
     Instrument,
@@ -24,6 +23,7 @@ from qcodes.instrument import (
 from qcodes.math_utils import FieldVector
 from qcodes.parameters import Parameter
 from qcodes.utils import QCoDeSDeprecationWarning
+from qcodes.utils.types import NumberType
 from qcodes.validators import Anything, Bool, Enum, Ints, Numbers
 
 if TYPE_CHECKING:
@@ -72,7 +72,7 @@ class AMI430SwitchHeater(InstrumentChannel):
             "enabled",
             label="Switch Heater Enabled",
             get_cmd=self._check_enabled,
-            set_cmd=lambda x: (self._enable() if x else self._disable()),
+            set_cmd=lambda x: self._enable() if x else self._disable(),
             vals=Bool(),
         )
         """Parameter enabled"""
@@ -80,7 +80,7 @@ class AMI430SwitchHeater(InstrumentChannel):
             "state",
             label="Switch Heater On",
             get_cmd=self._check_state,
-            set_cmd=lambda x: (self._on() if x else self._off()),
+            set_cmd=lambda x: self._on() if x else self._off(),
             vals=Bool(),
         )
         """Parameter state. Always False is the switch heater is not enabled"""
@@ -134,29 +134,8 @@ class AMI430SwitchHeater(InstrumentChannel):
         self.write(cmd="CONF:PS 1")
         self._enabled = True
 
-    @deprecated(
-        "Use enabled parameter to enable/disable the switch heater.",
-        category=QCoDeSDeprecationWarning,
-    )
-    def disable(self) -> None:
-        self._disable()
-
-    @deprecated(
-        "Use enabled parameter to enable/disable the switch heater.",
-        category=QCoDeSDeprecationWarning,
-    )
-    def enable(self) -> None:
-        self._enable()
-
     def _check_enabled(self) -> bool:
         return bool(int(self.ask("PS:INST?").strip()))
-
-    @deprecated(
-        "Use enabled parameter to inspect switch heater status.",
-        category=QCoDeSDeprecationWarning,
-    )
-    def check_enabled(self) -> bool:
-        return self._check_enabled()
 
     @_Decorators.check_enabled
     def _on(self) -> None:
@@ -164,37 +143,16 @@ class AMI430SwitchHeater(InstrumentChannel):
         while self._parent.ramping_state() == "heating switch":
             self._parent._sleep(0.5)
 
-    @deprecated(
-        "Use state parameter to turn on the switch heater.",
-        category=QCoDeSDeprecationWarning,
-    )
-    def on(self) -> None:
-        self._on()
-
     @_Decorators.check_enabled
     def _off(self) -> None:
         self.write("PS 0")
         while self._parent.ramping_state() == "cooling switch":
             self._parent._sleep(0.5)
 
-    @deprecated(
-        "Use state parameter to turn off the switch heater.",
-        category=QCoDeSDeprecationWarning,
-    )
-    def off(self) -> None:
-        self._off()
-
     def _check_state(self) -> bool:
         if self.enabled() is False:
             return False
         return bool(int(self.ask("PS?").strip()))
-
-    @deprecated(
-        "Use state parameter to inspect if switch heater is on.",
-        category=QCoDeSDeprecationWarning,
-    )
-    def check_state(self) -> bool:
-        return self._check_state()
 
 
 class AMIModel430(VisaInstrument):
@@ -234,6 +192,7 @@ class AMIModel430(VisaInstrument):
             reset: Should the reset method be called on the instrument at init time
             current_ramp_limit: A current ramp limit, in units of A/s
             **kwargs: Additional kwargs are passed to the base class
+
         """
         if "has_current_rating" in kwargs.keys():
             warnings.warn(
@@ -303,8 +262,8 @@ class AMIModel430(VisaInstrument):
         """Parameter current_ramp_limit"""
         self.field_ramp_limit: Parameter = self.add_parameter(
             "field_ramp_limit",
-            get_cmd=lambda: self.current_ramp_limit(),
-            set_cmd=lambda x: self.current_ramp_limit(x),
+            get_cmd=self.current_ramp_limit,
+            set_cmd=self.current_ramp_limit,
             scale=1 / float(self.ask("COIL?")),
             unit="T/s",
         )
@@ -392,7 +351,10 @@ class AMIModel430(VisaInstrument):
 
         # Add persistent switch
         switch_heater = AMI430SwitchHeater(self)
-        self.add_submodule("switch_heater", switch_heater)
+        self.switch_heater: AMI430SwitchHeater = self.add_submodule(
+            "switch_heater", switch_heater
+        )
+        """Submodule the switch heater submodule."""
 
         # Add interaction functions
         self.add_function("get_error", call_cmd="SYST:ERR?")
@@ -455,6 +417,7 @@ class AMIModel430(VisaInstrument):
             perform_safety_check: Whether to set the field via a parent
                 driver (if present), which might perform additional safety
                 checks.
+
         """
         # Check we aren't violating field limits
         field_lim = float(self.ask("COIL?")) * self.current_limit()
@@ -639,14 +602,6 @@ class AMIModel430(VisaInstrument):
         return result
 
 
-@deprecated(
-    "Use qcodes.instrument_drivers.american_magnetics.AMIModel430 instead.",
-    category=QCoDeSDeprecationWarning,
-)
-class AMI430(AMIModel430):
-    pass
-
-
 class AMIModel4303D(Instrument):
     def __init__(
         self,
@@ -677,6 +632,7 @@ class AMIModel4303D(Instrument):
                 iterable of callable field limit functions that define
                 region(s) of allowed values in 3D magnetic field space
             **kwargs: kwargs are forwarded to base class.
+
         """
         super().__init__(name, **kwargs)
 
@@ -720,7 +676,7 @@ class AMIModel4303D(Instrument):
         self._field_limit: float | Iterable[CartesianFieldLimitFunction]
         if isinstance(field_limit, Iterable):
             self._field_limit = field_limit
-        elif isinstance(field_limit, numbers.Real):
+        elif isinstance(field_limit, NumberType):
             # Conversion to float makes related driver logic simpler
             self._field_limit = float(field_limit)
         else:
@@ -1055,15 +1011,15 @@ class AMIModel4303D(Instrument):
                 f"{ramp_rate_units_of_instruments}"
             )
 
-        common_field_units = tuple(field_units_of_instruments.keys())[0]
-        common_ramp_rate_units = tuple(ramp_rate_units_of_instruments.keys())[0]
+        common_field_units = next(iter(field_units_of_instruments.keys()))
+        common_ramp_rate_units = next(iter(ramp_rate_units_of_instruments.keys()))
 
         return common_field_units, common_ramp_rate_units
 
     def _verify_safe_setpoint(
         self, setpoint_values: tuple[float, float, float]
     ) -> bool:
-        if isinstance(self._field_limit, (int, float)):
+        if isinstance(self._field_limit, NumberType):
             return bool(np.linalg.norm(setpoint_values) < self._field_limit)
 
         answer = any(
@@ -1080,6 +1036,7 @@ class AMIModel4303D(Instrument):
 
         Args:
             values: a tuple of cartesian coordinates (x, y, z).
+
         """
         self.log.debug("Checking whether fields can be set")
 
@@ -1088,11 +1045,11 @@ class AMIModel4303D(Instrument):
             raise ValueError("_set_fields aborted; field would exceed limit")
 
         # Check if the individual instruments are ready
-        for name, value in zip(["x", "y", "z"], values):
+        for name in ("x", "y", "z"):
             instrument = getattr(self, f"_instrument_{name}")
             if instrument.ramping_state() == "ramping":
-                msg = "_set_fields aborted; magnet {} is already ramping"
-                raise AMI430Exception(msg.format(instrument))
+                msg = f"_set_fields aborted; magnet {instrument} is already ramping"
+                raise AMI430Exception(msg)
 
         # Now that we know we can proceed, call the individual instruments
 
@@ -1229,9 +1186,7 @@ class AMIModel4303D(Instrument):
         ):
             axis_instrument.pause()
 
-    def _request_field_change(
-        self, instrument: AMIModel430, value: numbers.Real
-    ) -> None:
+    def _request_field_change(self, instrument: AMIModel430, value: NumberType) -> None:
         """
         This method is called by the child x/y/z magnets if they are set
         individually. It results in additional safety checks being
@@ -1302,16 +1257,8 @@ class AMIModel4303D(Instrument):
             set_point.set_component(**kwargs)
 
         setpoint_values = cast(
-            tuple[float, float, float], set_point.get_components("x", "y", "z")
+            "tuple[float, float, float]", set_point.get_components("x", "y", "z")
         )
         self._adjust_child_instruments(setpoint_values)
 
         self._set_point = set_point
-
-
-@deprecated(
-    "Use qcodes.instrument_drivers.american_magnetics.AMIModel4303D instead.",
-    category=QCoDeSDeprecationWarning,
-)
-class AMI430_3D(AMIModel4303D):
-    pass

@@ -8,12 +8,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypeVar
 
 import numpy as np
+import numpy.typing as npt
+
+from qcodes.utils.types import NumberType
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from typing import Self
 
 AllCoordsType = tuple[float, float, float, float, float, float, float]
-NormOrder = None | float | Literal["fro"] | Literal["nuc"]
+NormOrder = Literal["fro", "nuc"] | None | float
 T = TypeVar("T", bound="FieldVector")
 
 
@@ -55,6 +59,7 @@ class FieldVector:
                 of the vector on to the xy-plane
             phi: represents the angle of rho
                 with respect to the positive x-axis
+
         """
 
         self._x = float(x) if x is not None else None
@@ -176,7 +181,7 @@ class FieldVector:
                 self._set_attribute_values(FieldVector.attributes, new_values)
                 break
 
-    def copy(self: T, other: T) -> None:
+    def copy(self: Self, other: Self) -> None:
         """Copy the properties of other vector to yourself."""
         for att in FieldVector.attributes:
             value = getattr(other, "_" + att)
@@ -198,6 +203,7 @@ class FieldVector:
             # generality (and not worth it), so the following will raise the
             # above-mentioned ValueError too.
             >>> f.set_vector(x=9, y=0, r=3)
+
         """
         names = sorted(list(new_values.keys()))
         groups = [["x", "y", "z"], ["phi", "r", "theta"], ["phi", "rho", "z"]]
@@ -227,6 +233,7 @@ class FieldVector:
         Args:
             new_values (dict): Keys representing parameter names and values the
                 values to be set.
+
         """
         if len(new_values) > 1:
             raise NotImplementedError("Cannot set multiple components at once")
@@ -289,21 +296,21 @@ class FieldVector:
         self.set_component(**{component: value})
 
     def __mul__(self, other: Any) -> FieldVector:
-        if not isinstance(other, (float, int)):
+        if not isinstance(other, NumberType):
             return NotImplemented
 
         return FieldVector(
-            **{component: self[component] * other for component in "xyz"}
+            **{component: self[component] * float(other) for component in "xyz"}
         )
 
     def __rmul__(self, other: Any) -> FieldVector:
-        if not isinstance(other, (int, float)):
+        if not isinstance(other, NumberType):
             return NotImplemented
 
         return self * other
 
     def __truediv__(self, other: Any) -> FieldVector:
-        if not isinstance(other, (int, float)):
+        if not isinstance(other, NumberType):
             return NotImplemented
 
         return self * (1.0 / other)
@@ -400,11 +407,11 @@ class FieldVector:
 
     # Homogeneous Coordinates #
 
-    def as_homogeneous(self) -> np.ndarray:
+    def as_homogeneous(self) -> npt.NDArray:
         return np.array([self.x, self.y, self.z, 1])
 
     @classmethod
-    def from_homogeneous(cls: type[T], hvec: np.ndarray) -> T:
+    def from_homogeneous(cls: type[Self], hvec: npt.NDArray) -> Self:
         # Homogeneous coordinates define an equivalence relation
         #     [x / s, y / s, z / s, 1] == [x, y, z, s].
         # More generally,

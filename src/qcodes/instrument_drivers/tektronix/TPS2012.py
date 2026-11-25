@@ -1,9 +1,10 @@
 import binascii
 import logging
 from functools import partial
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import numpy.typing as npt
 from pyvisa.errors import VisaIOError
 from typing_extensions import TypedDict, Unpack
 
@@ -16,6 +17,9 @@ from qcodes.instrument import (
     VisaInstrumentKWArgs,
 )
 from qcodes.parameters import ArrayParameter, Parameter, ParamRawDataType
+
+if TYPE_CHECKING:
+    from qcodes.instrument.channel import ChannelTuple
 
 log = logging.getLogger(__name__)
 
@@ -64,7 +68,7 @@ class ScopeArray(ArrayParameter):
         )
         self.channel = channel
 
-    def calc_set_points(self) -> tuple[np.ndarray, int]:
+    def calc_set_points(self) -> tuple[npt.NDArray, int]:
         assert isinstance(self.instrument, TektronixTPS2012Channel)
         message = self.instrument.ask("WFMPre?")
         preamble = self._preambleparser(message)
@@ -96,8 +100,7 @@ class ScopeArray(ArrayParameter):
         assert isinstance(self.root_instrument, TektronixTPS2012)
         if not self.root_instrument.trace_ready:
             raise TraceNotReady(
-                "Please run prepare_curvedata to prepare "
-                "the scope for giving a trace."
+                "Please run prepare_curvedata to prepare the scope for giving a trace."
             )
         message = self._curveasker(self.channel)
         _, ydata, _ = self._curveparameterparser(message)
@@ -117,7 +120,7 @@ class ScopeArray(ArrayParameter):
         return message
 
     @staticmethod
-    def _binaryparser(curve: str) -> np.ndarray:
+    def _binaryparser(curve: str) -> npt.NDArray:
         """
         Helper function for parsing the curve data
 
@@ -130,6 +133,7 @@ class ScopeArray(ArrayParameter):
         Returns:
             The curve in units where the digitisation range
             is mapped to (-32768, 32767).
+
         """
         # TODO: Add support for data width = 1 mode?
         output = np.zeros(int(len(curve) / 2))  # data width 2
@@ -155,6 +159,7 @@ class ScopeArray(ArrayParameter):
               no_of_bytes, no_of_bits, encoding, binary_format,
               byte_order, no_of_points, waveform_ID, point_format,
               x_incr, x_zero, x_unit, y_multiplier, y_zero, y_offset, y_unit
+
         """
         response_list = response.split(";")
 
@@ -180,7 +185,7 @@ class ScopeArray(ArrayParameter):
 
     def _curveparameterparser(
         self, waveform: str
-    ) -> tuple[np.ndarray, np.ndarray, int]:
+    ) -> tuple[npt.NDArray, npt.NDArray, int]:
         """
         The parser for the curve parameter. Note that WAVFrm? is equivalent
         to WFMPre?; CURVe?
@@ -192,6 +197,7 @@ class ScopeArray(ArrayParameter):
             Two numpy arrays with the time axis in units
             of s and curve values in units of V; (time, voltages) and
             the number of points as an integer
+
         """
         fulldata = waveform.split(";")
         preamblestr = ";".join(fulldata[:16])
@@ -298,6 +304,7 @@ class TektronixTPS2012(VisaInstrument):
             name: Name of the instrument used by QCoDeS
             address: Instrument address as used by VISA
             **kwargs: kwargs are forwarded to base class.
+
         """
 
         super().__init__(name, address, **kwargs)
@@ -412,7 +419,10 @@ class TektronixTPS2012(VisaInstrument):
             channel = TektronixTPS2012Channel(self, ch_name, ch_num)
             channels.append(channel)
             self.add_submodule(ch_name, channel)
-        self.add_submodule("channels", channels.to_channel_tuple())
+        self.channels: ChannelTuple[TektronixTPS2012Channel] = self.add_submodule(
+            "channels", channels.to_channel_tuple()
+        )
+        """Tuple of TektronixTPS2012Channel"""
 
         # Necessary settings for parsing the binary curve data
         self.visa_handle.encoding = "latin-1"
@@ -444,6 +454,7 @@ class TektronixTPS2012(VisaInstrument):
         Args:
             verbose: If True, the read messages are printed.
                 Default: False.
+
         """
         original_timeout = self.visa_handle.timeout
         self.visa_handle.timeout = 1000  # 1 second as VISA counts in ms

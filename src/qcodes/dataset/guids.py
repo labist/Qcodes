@@ -30,6 +30,7 @@ def generate_guid(timeint: int | None = None, sampleint: int | None = None) -> s
     Args:
         timeint: An integer of miliseconds since unix epoch time
         sampleint: A code for the sample
+
     """
     cfg = qc.config
 
@@ -37,8 +38,7 @@ def generate_guid(timeint: int | None = None, sampleint: int | None = None) -> s
         guid_comp = cfg["GUID_components"]
     except KeyError as err:
         raise RuntimeError(
-            "Invalid QCoDeS config file! No GUID_components "
-            "specified. Can not proceed."
+            "Invalid QCoDeS config file! No GUID_components specified. Can not proceed."
         ) from err
     try:
         guid_type = guid_comp["GUID_type"]
@@ -101,6 +101,7 @@ def parse_guid(guid: str) -> dict[str, int]:
     Returns:
         A dict with keys 'location', 'work_station', 'sample', and 'time'
           as integer values
+
     """
     guid = guid.replace("-", "")
     components = {}
@@ -122,15 +123,16 @@ def build_guid_from_components(components: dict[str, int]) -> str:
 
     Returns:
         A valid guid string
+
     """
-    work_station_hex = f'{components["work_station"]:06x}'
+    work_station_hex = f"{components['work_station']:06x}"
 
     guid = (
-        f'{components["sample"]:08x}-'
-        f'{components["location"]:02x}'
+        f"{components['sample']:08x}-"
+        f"{components['location']:02x}"
         f"{work_station_hex[:2]}-"
         f"{work_station_hex[2:]}-"
-        f'{components["time"]:016x}'
+        f"{components['time']:016x}"
     )
 
     return guid
@@ -211,6 +213,7 @@ def filter_guids_by_parts(
 
     Returns:
         A list of GUIDs that matches the supplied parts.
+
     """
     matched_guids = []
     for guid in guids:

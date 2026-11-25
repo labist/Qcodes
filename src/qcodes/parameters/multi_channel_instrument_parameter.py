@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import sys
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 from .multi_parameter import MultiParameter
@@ -28,6 +27,7 @@ class MultiChannelInstrumentParameter(MultiParameter, Generic[InstrumentModuleTy
         channels: A list of channels which we can operate on
           simultaneously.
         param_name: Name of the multichannel parameter
+
     """
 
     def __init__(
@@ -55,6 +55,7 @@ class MultiChannelInstrumentParameter(MultiParameter, Generic[InstrumentModuleTy
         Args:
             value: The value(s) to set to. The type is given by the
                 underlying parameter.
+
         """
         try:
             for chan in self._channels:
@@ -72,10 +73,9 @@ class MultiChannelInstrumentParameter(MultiParameter, Generic[InstrumentModuleTy
                     "Value should either be valid for a single parameter of the channel list "
                     "or a sequence of valid values of the same length as the list."
                 )
-                if sys.version_info >= (3, 11):
-                    err.add_note(note)
-                else:
-                    _LOG.error(note)
+
+                err.add_note(note)
+
                 raise err from None
 
     @property

@@ -13,7 +13,10 @@ from .data_set import (
 )
 from .data_set_in_memory import load_from_file, load_from_netcdf
 from .data_set_protocol import DataSetProtocol, DataSetType
-from .database_extract_runs import extract_runs_into_db
+from .database_extract_runs import (
+    export_datasets_and_create_metadata_db,
+    extract_runs_into_db,
+)
 from .descriptions.dependencies import InterDependencies_, ParamSpecTree
 from .descriptions.param_spec import ParamSpec
 from .descriptions.rundescriber import RunDescriber
@@ -22,6 +25,7 @@ from .dond.do_0d import do0d
 from .dond.do_1d import do1d
 from .dond.do_2d import do2d
 from .dond.do_nd import dond
+from .dond.do_repeated import do_repeated
 from .dond.do_nd_utils import BreakConditionInterrupt
 from .dond.sweeps import AbstractSweep, ArraySweep, LinSweep, LogSweep, TogetherSweep
 from .experiment_container import (
@@ -44,7 +48,9 @@ from .measurement_extensions import (
 )
 from .measurements import Measurement
 from .plotting import plot_by_id, plot_dataset
-from .sqlite.connection import ConnectionPlus
+from .sqlite.connection import (
+    AtomicConnection,
+)
 from .sqlite.database import (
     connect,
     initialise_database,
@@ -61,12 +67,14 @@ from .threading import (
 __all__ = [
     "AbstractSweep",
     "ArraySweep",
+    "AtomicConnection",
     "BreakConditionInterrupt",
-    "ConnectionPlus",
+    "DataSetDefinition",
     "DataSetProtocol",
     "DataSetType",
     "InterDependencies_",
     "LinSweep",
+    "LinSweeper",
     "LogSweep",
     "Measurement",
     "ParamSpec",
@@ -79,13 +87,13 @@ __all__ = [
     "call_params_threaded",
     "connect",
     "datasaver_builder",
-    "DataSetDefinition",
     "do0d",
     "do1d",
     "do2d",
     "dond",
     "dond_into",
     "experiments",
+    "export_datasets_and_create_metadata_db",
     "extract_runs_into_db",
     "get_data_export_path",
     "get_default_experiment_id",
@@ -97,7 +105,6 @@ __all__ = [
     "initialise_database",
     "initialise_or_create_database_at",
     "initialised_database_at",
-    "LinSweeper",
     "load_by_counter",
     "load_by_guid",
     "load_by_id",

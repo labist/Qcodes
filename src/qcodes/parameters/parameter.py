@@ -6,24 +6,33 @@ from __future__ import annotations
 import logging
 import os
 from types import MethodType
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Generic, Literal
 
 from .command import Command
-from .parameter_base import ParamDataType, ParameterBase, ParamRawDataType
+from .parameter_base import (
+    InstrumentTypeVar_co,
+    ParameterBase,
+    ParameterDataTypeVar,
+    ParamRawDataType,
+)
 from .sweep_values import SweepFixedValues
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from qcodes.instrument.base import InstrumentBase
+    from qcodes.instrument import InstrumentBase
     from qcodes.logger.instrument_logger import InstrumentLoggerAdapter
+    from qcodes.parameters import ParamSpecBase
     from qcodes.validators import Validator
 
 
 log = logging.getLogger(__name__)
 
 
-class Parameter(ParameterBase):
+class Parameter(
+    ParameterBase[ParameterDataTypeVar, InstrumentTypeVar_co],
+    Generic[ParameterDataTypeVar, InstrumentTypeVar_co],
+):
     """
     A parameter represents a single degree of freedom. Most often,
     this is the standard parameter for Instruments, though it can also be
@@ -165,21 +174,24 @@ class Parameter(ParameterBase):
 
         bind_to_instrument: Should the parameter be registered as a delegate attribute
             on the instrument passed via the instrument argument.
+
     """
 
     def __init__(
         self,
         name: str,
-        instrument: InstrumentBase | None = None,
+        # mypy seems to be confused here. The bound and default for InstrumentTypeVar_co
+        # contains None but mypy will not allow None as a default as of v 1.19.0
+        instrument: InstrumentTypeVar_co = None,  # type: ignore[assignment]
         label: str | None = None,
         unit: str | None = None,
         get_cmd: str | Callable[..., Any] | Literal[False] | None = None,
         set_cmd: str | Callable[..., Any] | Literal[False] | None = False,
-        initial_value: float | str | None = None,
+        initial_value: ParameterDataTypeVar | None = None,
         max_val_age: float | None = None,
         vals: Validator[Any] | None = None,
         docstring: str | None = None,
-        initial_cache_value: float | str | None = None,
+        initial_cache_value: ParameterDataTypeVar | None = None,
         bind_to_instrument: bool = True,
         **kwargs: Any,
     ) -> None:
@@ -200,12 +212,7 @@ class Parameter(ParameterBase):
         def _set_manual_parameter(
             self: Parameter, x: ParamRawDataType
         ) -> ParamRawDataType:
-            if self.root_instrument is not None:
-                mylogger: InstrumentLoggerAdapter | logging.Logger = (
-                    self.root_instrument.log
-                )
-            else:
-                mylogger = log
+            mylogger = self._get_logger()
             mylogger.debug(
                 "Setting raw value of parameter: %s to %s", self.full_name, x
             )
@@ -244,7 +251,9 @@ class Parameter(ParameterBase):
             **kwargs,
         )
 
-        no_instrument_get = not self.gettable and (get_cmd is None or get_cmd is False)
+        no_instrument_get = not self._implements_get_raw and (
+            get_cmd is None or get_cmd is False
+        )
         # TODO: a matching check should be in ParameterBase but
         #   due to the current limited design the ParameterBase cannot
         #   know if this subclass will supply a get_cmd
@@ -260,13 +269,13 @@ class Parameter(ParameterBase):
         # in the scope of this class.
         # (previous call to `super().__init__` wraps existing
         # get_raw/set_raw into get/set methods)
-        if self.gettable and get_cmd not in (None, False):
+        if self._implements_get_raw and get_cmd not in (None, False):
             raise TypeError(
                 "Supplying a not None or False `get_cmd` to a Parameter"
                 " that already implements"
                 " get_raw is an error."
             )
-        elif not self.gettable and get_cmd is not False:
+        elif not self._implements_get_raw and get_cmd is not False:
             if get_cmd is None:
                 # ignore typeerror since mypy does not allow setting a method dynamically
                 self.get_raw = MethodType(_get_manual_parameter, self)  # type: ignore[method-assign]
@@ -288,17 +297,15 @@ class Parameter(ParameterBase):
                     exec_str=exec_str_ask,
                 )
             self._gettable = True
-            # mypy resolves the type of self.get_raw to object here.
-            # this may be resolvable if Command above is correctly wrapped in MethodType
-            self.get = self._wrap_get(self.get_raw)  # type: ignore[arg-type]
+            self.get = self._wrap_get(self.get_raw)
 
-        if self.settable and set_cmd not in (None, False):
+        if self._implements_set_raw and set_cmd not in (None, False):
             raise TypeError(
                 "Supplying a not None or False `set_cmd` to a Parameter"
                 " that already implements"
                 " set_raw is an error."
             )
-        elif not self.settable and set_cmd is not False:
+        elif not self._implements_set_raw and set_cmd is not False:
             if set_cmd is None:
                 # ignore typeerror since mypy does not allow setting a method dynamically
                 self.set_raw = MethodType(_set_manual_parameter, self)  # type: ignore[method-assign]
@@ -399,13 +406,16 @@ class Parameter(ParameterBase):
         """
         return SweepFixedValues(self, keys)
 
-    def increment(self, value: ParamDataType) -> None:
+    def increment(self, value: ParameterDataTypeVar) -> None:
         """Increment the parameter with a value
 
         Args:
             value: Value to be added to the parameter.
+
         """
-        self.set(self.get() + value)
+        # this method only works with parameters that support addition
+        # however we don't currently enforce that via typing
+        self.set(self.get() + value)  # type: ignore[operator]
 
     def sweep(
         self,
@@ -436,8 +446,16 @@ class Parameter(ParameterBase):
             [5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
             >>> sweep(15, 10.5, step=1.5)
             >[15.0, 13.5, 12.0, 10.5]
+
         """
         return SweepFixedValues(self, start=start, stop=stop, step=step, num=num)
+
+    @property
+    def param_spec(self) -> ParamSpecBase:
+        paramspecbase = super().param_spec  # Sets the name and paramtype
+        paramspecbase.label = self.label
+        paramspecbase.unit = self.unit
+        return paramspecbase
 
 
 class ManualParameter(Parameter):

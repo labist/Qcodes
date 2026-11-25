@@ -8,11 +8,11 @@ import time
 import xml.etree.ElementTree as ET
 import zipfile as zf
 from functools import partial
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, Self
 
 import numpy as np
+import numpy.typing as npt
 from broadbean.sequence import InvalidForgedSequenceError, fs_schema
-from typing_extensions import deprecated
 
 from qcodes import validators as vals
 from qcodes.instrument import (
@@ -24,7 +24,6 @@ from qcodes.instrument import (
     VisaInstrumentKWArgs,
 )
 from qcodes.parameters import create_on_off_val_mapping
-from qcodes.utils import QCoDeSDeprecationWarning
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -133,6 +132,7 @@ class SRValidator(vals.Validator[float]):
         Args:
             awg: The parent instrument instance. We need this since sample
                 rate validation depends on many clock settings
+
         """
         self.awg = awg
         if self.awg.model in ["70001A", "70001B"]:
@@ -176,6 +176,7 @@ class Tektronix70000AWGChannel(InstrumentChannel):
             name: The name used in the DataSet
             channel: The channel number, either 1 or 2.
             **kwargs: Forwarded to base class.
+
         """
 
         super().__init__(parent, name, **kwargs)
@@ -190,7 +191,7 @@ class Tektronix70000AWGChannel(InstrumentChannel):
         if channel not in list(range(1, num_channels + 1)):
             raise ValueError("Illegal channel value.")
 
-        self.state: Parameter = self.add_parameter(
+        self.state: Parameter[int, Self] = self.add_parameter(
             "state",
             label=f"Channel {channel} state",
             get_cmd=f"OUTPut{channel}:STATe?",
@@ -198,7 +199,18 @@ class Tektronix70000AWGChannel(InstrumentChannel):
             vals=vals.Ints(0, 1),
             get_parser=int,
         )
-        """Parameter state"""
+        """Channel State: (OFF: 0, ON: 1)"""
+
+        self.hold: Parameter[Literal["FIRST", "ZERO"], Self] = self.add_parameter(
+            "hold",
+            label=f"Channel {channel} hold value",
+            get_cmd=f"OUTPut{channel}:WVALUE:ANALOG:STATE?",
+            set_cmd=f"OUTPut{channel}:WVALUE:ANALOG:STATE {{}}",
+            vals=vals.Enum("FIRST", "ZERO"),
+        )
+        """ the output condition of a waveform of the specified
+          channel to hold while the instrument is in the waiting-for-trigger state.
+          ZERO = 0V, FIRST = first value of next sequence"""
 
         ##################################################
         # FGEN PARAMETERS
@@ -437,6 +449,7 @@ class Tektronix70000AWGChannel(InstrumentChannel):
 
         Args:
             name: The name of the waveform
+
         """
         if name not in self.root_instrument.waveformList:
             raise ValueError("No such waveform in the waveform list")
@@ -450,6 +463,7 @@ class Tektronix70000AWGChannel(InstrumentChannel):
         Args:
             seqname: Name of the sequence in the sequence list
             tracknr: Which track to use (1 or 2)
+
         """
 
         self.root_instrument.write(
@@ -494,6 +508,7 @@ class TektronixAWG70000Base(VisaInstrument):
             address: The VISA resource name of the instrument
             num_channels: Number of channels on the AWG
             **kwargs: kwargs are forwarded to base class.
+
         """
 
         self.num_channels = num_channels
@@ -583,6 +598,14 @@ class TektronixAWG70000Base(VisaInstrument):
         )
         """Parameter all_output_off"""
 
+        self.force_jump: Parameter[int, Self] = self.add_parameter(
+            "force_jump",
+            label="Force Jump",
+            set_cmd="SOURCE1:JUMP:FORCE {}",
+            vals=vals.Ints(1, 16383),
+        )
+        """Parameter force_jump"""
+
         add_channel_list = self.num_channels > 2
         # We deem 2 channels too few for a channel list
         if add_channel_list:
@@ -615,6 +638,23 @@ class TektronixAWG70000Base(VisaInstrument):
 
         self.connect_message()
 
+    def set_event_jump(
+        self, sequence_name: str, current_step: int, next_step: int
+    ) -> None:
+        """
+        Set event jump for a given step in the sequence
+
+        Args:
+            sequence_name: The name of the sequence
+            current_step: The step number in the sequence (1-indexed)
+            next_step: The step number to jump to (1-indexed)
+
+        """
+
+        self.write(
+            f"SLISt:SEQuence:STEP{current_step}:EJUMp {sequence_name}, {next_step}"
+        )
+
     def force_triggerA(self) -> None:
         """
         Force a trigger A event
@@ -643,6 +683,7 @@ class TektronixAWG70000Base(VisaInstrument):
                 instrument is getting ready to play
             timeout: The maximal time to wait for the instrument to play.
                 Raises an exception is this time is reached.
+
         """
         self.write("AWGControl:RUN")
         if wait_for_running:
@@ -702,6 +743,7 @@ class TektronixAWG70000Base(VisaInstrument):
         Args:
             seqname: The name of the sequence (as it appears in the sequence
                 list, not the file name) to delete
+
         """
         self.write(f'SLISt:SEQuence:DELete "{seqname}"')
 
@@ -718,7 +760,7 @@ class TektronixAWG70000Base(VisaInstrument):
         self.write("WLISt:WAVeform:DELete ALL")
 
     @staticmethod
-    def makeWFMXFile(data: np.ndarray, amplitude: float) -> bytes:
+    def makeWFMXFile(data: npt.NDArray, amplitude: float) -> bytes:
         """
         Compose a WFMX file
 
@@ -732,6 +774,7 @@ class TektronixAWG70000Base(VisaInstrument):
 
         Returns:
             The binary .wfmx file, ready to be sent to the instrument.
+
         """
 
         shape = np.shape(data)
@@ -767,6 +810,7 @@ class TektronixAWG70000Base(VisaInstrument):
                 extension.
             path: The path to the directory where the file should be saved. If
                 omitted, seqxFileFolder will be used.
+
         """
         if not path:
             path = self.seqxFileFolder
@@ -784,6 +828,7 @@ class TektronixAWG70000Base(VisaInstrument):
                 extension.
             path: The path to the directory where the file should be saved. If
                 omitted, seqxFileFolder will be used.
+
         """
         if not path:
             path = self.wfmxFileFolder
@@ -802,6 +847,7 @@ class TektronixAWG70000Base(VisaInstrument):
                 extension.
             path: The path to the directory where the file should be saved.
             overwrite: If true, the file on disk gets overwritten
+
         """
 
         name_str = f'MMEMory:DATA "{filename}"'.encode("ascii")
@@ -837,6 +883,7 @@ class TektronixAWG70000Base(VisaInstrument):
             filename: Name of the file (with extension)
             path: Path to load from. If omitted, the default path
                 (self.wfmxFileFolder) is used.
+
         """
 
         if not path:
@@ -857,6 +904,7 @@ class TektronixAWG70000Base(VisaInstrument):
             filename: The name of the sequence file INCLUDING the extension
             path: Path to load from. If omitted, the default path
                 (self.seqxFileFolder) is used.
+
         """
         if not path:
             path = self.seqxFileFolder
@@ -965,7 +1013,7 @@ class TektronixAWG70000Base(VisaInstrument):
         return xmlstr
 
     @staticmethod
-    def _makeWFMXFileBinaryData(data: np.ndarray, amplitude: float) -> bytes:
+    def _makeWFMXFileBinaryData(data: npt.NDArray, amplitude: float) -> bytes:
         """
         For the binary part.
 
@@ -982,6 +1030,7 @@ class TektronixAWG70000Base(VisaInstrument):
                 needed as the waveform must be rescaled to (-1, 1) where
                 -1 will correspond to the channel's min. voltage and 1 to the
                 channel's max. voltage.
+
         """
 
         channel_max = amplitude / 2
@@ -1048,6 +1097,7 @@ class TektronixAWG70000Base(VisaInstrument):
         Returns:
             The binary .seqx file contents. Can be sent directly to the
                 instrument or saved on disk.
+
         """
 
         try:
@@ -1079,7 +1129,7 @@ class TektronixAWG70000Base(VisaInstrument):
         if set(channel_mapping.values()) != set(range(1, 1 + len(chan_list))):
             raise ValueError(
                 "Invalid channel_mapping. Must map onto "
-                f"{list(range(1, 1+len(chan_list)))}"
+                f"{list(range(1, 1 + len(chan_list)))}"
             )
 
         ##########
@@ -1232,7 +1282,7 @@ class TektronixAWG70000Base(VisaInstrument):
         event_jumps: Sequence[int],
         event_jump_to: Sequence[int],
         go_to: Sequence[int],
-        wfms: Sequence[Sequence[np.ndarray]],
+        wfms: Sequence[Sequence[npt.NDArray]],
         amplitudes: Sequence[float],
         seqname: str,
         flags: Sequence[Sequence[Sequence[int]]] | None = None,
@@ -1283,6 +1333,7 @@ class TektronixAWG70000Base(VisaInstrument):
 
         Returns:
             The binary .seqx file, ready to be sent to the instrument.
+
         """
 
         # input sanitising to avoid spaces in filenames
@@ -1349,6 +1400,7 @@ class TektronixAWG70000Base(VisaInstrument):
 
         Returns:
             The setup file as a string
+
         """
         head = ET.Element("RSAPersist")
         head.set("version", "0.1")
@@ -1417,6 +1469,7 @@ class TektronixAWG70000Base(VisaInstrument):
 
         Returns:
             A str containing the file contents, to be saved as an .sml file
+
         """
 
         offsetdigits = 9
@@ -1435,8 +1488,7 @@ class TektronixAWG70000Base(VisaInstrument):
 
         if lstlens[0] != len(elem_names):
             raise ValueError(
-                "Mismatch between number of waveforms and"
-                " number of sequencing steps."
+                "Mismatch between number of waveforms and number of sequencing steps."
             )
 
         N = lstlens[0]
@@ -1506,7 +1558,7 @@ class TektronixAWG70000Base(VisaInstrument):
                 repcount.text = "1"
             else:
                 rep.text = "RepeatCount"
-                repcount.text = f"{nreps[n-1]:d}"
+                repcount.text = f"{nreps[n - 1]:d}"
             # trigger wait
             temp_elem = ET.SubElement(step, "WaitInput")
             temp_elem.text = waitinputs[trig_waits[n - 1]]
@@ -1520,7 +1572,7 @@ class TektronixAWG70000Base(VisaInstrument):
                 jumpstep.text = "1"
             else:
                 jumpto.text = "StepIndex"
-                jumpstep.text = f"{event_jump_to[n-1]:d}"
+                jumpstep.text = f"{event_jump_to[n - 1]:d}"
             # Go to
             goto = ET.SubElement(step, "GoTo")
             gotostep = ET.SubElement(step, "GoToStep")
@@ -1529,7 +1581,7 @@ class TektronixAWG70000Base(VisaInstrument):
                 gotostep.text = "1"
             else:
                 goto.text = "StepIndex"
-                gotostep.text = f"{go_to[n-1]:d}"
+                gotostep.text = f"{go_to[n - 1]:d}"
 
             assets = ET.SubElement(step, "Assets")
             for assetname in elem_names[n - 1]:
@@ -1574,10 +1626,3 @@ class TektronixAWG70000Base(VisaInstrument):
         )
 
         return xmlstr
-
-
-@deprecated(
-    "Base class renamed TektronixAWG70000Base", category=QCoDeSDeprecationWarning
-)
-class AWG70000A(TektronixAWG70000Base):
-    pass

@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from packaging import version
 from pyvisa.errors import VisaIOError
@@ -46,6 +46,7 @@ class KeysightE4980AMeasurementPair(MultiParameter):
         >>> data.set((1.2, 3.4))
         >>> data.get()
         (1.2, 3.4)
+
     """
 
     value: tuple[float, float] = (0.0, 0.0)
@@ -216,6 +217,7 @@ class KeysightE4980A(VisaInstrument):
             address: Visa-resolvable instrument address.
             terminator: Character to terminate messages with.
             **kwargs: kwargs are forwarded to base class.
+
         """
         super().__init__(name, address, **kwargs)
 
@@ -271,8 +273,7 @@ class KeysightE4980A(VisaInstrument):
             set_cmd=self._set_voltage_level,
             unit="V",
             vals=self._v_level_range,
-            docstring="Gets and sets the AC bias voltage level for measurement "
-            "signal.",
+            docstring="Gets and sets the AC bias voltage level for measurement signal.",
         )
         """Gets and sets the AC bias voltage level for measurement signal."""
 
@@ -370,14 +371,13 @@ class KeysightE4980A(VisaInstrument):
         )
         """This parameter tracks the signal mode which is being set."""
 
-        self.add_submodule("_correction", KeysightE4980ACorrection(self, "correction"))
+        self.correction: KeysightE4980ACorrection = self.add_submodule(
+            "correction", KeysightE4980ACorrection(self, "correction")
+        )
+        """Correction submodule"""
+
         self._set_signal_mode_on_driver_initialization()
         self.connect_message()
-
-    @property
-    def correction(self) -> KeysightE4980ACorrection:
-        submodule = self.submodules["_correction"]
-        return cast(KeysightE4980ACorrection, submodule)
 
     @property
     def measure_impedance(self) -> KeysightE4980AMeasurementPair:

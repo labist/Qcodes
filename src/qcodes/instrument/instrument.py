@@ -14,6 +14,8 @@ from .instrument_base import InstrumentBase, InstrumentBaseKWArgs
 from .instrument_meta import InstrumentMeta
 
 if TYPE_CHECKING:
+    from typing import Self
+
     from typing_extensions import Unpack
 
     from qcodes.logger.instrument_logger import InstrumentLoggerAdapter
@@ -56,6 +58,7 @@ class Instrument(InstrumentBase, metaclass=instrument_meta_class):
             instrument's JSON snapshot.
         label: nicely formatted name of the instrument; if None, the
             ``name`` is used.
+
     """
 
     _all_instruments: weakref.WeakValueDictionary[str, Instrument] = (
@@ -69,7 +72,10 @@ class Instrument(InstrumentBase, metaclass=instrument_meta_class):
 
         super().__init__(name=name, **kwargs)
 
-        self.add_parameter("IDN", get_cmd=self.get_idn, vals=Anything())
+        self.IDN = self.add_parameter("IDN", get_cmd=self.get_idn, vals=Anything())
+        """
+        Standard IDN parameter, which queries the instrument for its ID
+        """
 
     def get_idn(self) -> dict[str, str | None]:
         """
@@ -87,6 +93,7 @@ class Instrument(InstrumentBase, metaclass=instrument_meta_class):
 
         Returns:
             A dict containing vendor, model, serial, and firmware.
+
         """
         idstr = ""  # in case self.ask fails
         try:
@@ -125,11 +132,12 @@ class Instrument(InstrumentBase, metaclass=instrument_meta_class):
                 Default ``IDN``.
             begin_time: ``time.time()`` when init started.
                 Default is ``self._t0``, set at start of ``Instrument.__init__``.
+
         """
         # start with an empty dict, just in case an instrument doesn't
         # heed our request to return all 4 fields.
         idn = {"vendor": None, "model": None, "serial": None, "firmware": None}
-        idn.update(self.get(idn_param))
+        idn.update(self.parameters[idn_param].get())
         t = time.time() - (begin_time or self._t0)
 
         con_msg = (
@@ -185,6 +193,7 @@ class Instrument(InstrumentBase, metaclass=instrument_meta_class):
 
         Examples:
             >>> atexit.register(qc.Instrument.close_all())
+
         """
         log.info("Closing all registered instruments")
         for inststr in list(cls._all_instruments):
@@ -210,6 +219,7 @@ class Instrument(InstrumentBase, metaclass=instrument_meta_class):
 
         Raises:
             KeyError: If another instance with the same name is already present.
+
         """
         name = instance.name
         # First insert this instrument in the record of *all* instruments
@@ -228,7 +238,7 @@ class Instrument(InstrumentBase, metaclass=instrument_meta_class):
         cls._instances.add(instance)
 
     @classmethod
-    def instances(cls: type[T]) -> list[T]:
+    def instances(cls: type[Self]) -> list[Self]:
         """
         Get all currently defined instances of this instrument class.
 
@@ -237,6 +247,7 @@ class Instrument(InstrumentBase, metaclass=instrument_meta_class):
 
         Returns:
             A list of instances.
+
         """
         if getattr(cls, "_type", None) is not cls:
             # only instances of a superclass - we want instances of this
@@ -251,6 +262,7 @@ class Instrument(InstrumentBase, metaclass=instrument_meta_class):
 
         Args:
             instance: The instance to remove
+
         """
         if instance in getattr(cls, "_instances", weakref.WeakSet()):
             cls._instances.remove(instance)
@@ -291,6 +303,7 @@ class Instrument(InstrumentBase, metaclass=instrument_meta_class):
                 reference is invalid (dead).
             TypeError: If a specific class was requested but a different
                 type was found.
+
         """
         internal_instrument_class = instrument_class or Instrument
 
@@ -318,6 +331,7 @@ class Instrument(InstrumentBase, metaclass=instrument_meta_class):
         Args:
             name: Name of the instrument.
             instrument_class: The type of instrument you are looking for.
+
         """
         instrument_exists = True
 
@@ -344,6 +358,7 @@ class Instrument(InstrumentBase, metaclass=instrument_meta_class):
 
         Args:
             instr_instance: Instance of an Instrument class or its subclass.
+
         """
         if (
             isinstance(instr_instance, Instrument)
@@ -374,12 +389,15 @@ class Instrument(InstrumentBase, metaclass=instrument_meta_class):
         Raises:
             Exception: Wraps any underlying exception with extra context,
                 including the command and the instrument.
+
         """
         try:
             self.write_raw(cmd)
         except Exception as e:
-            inst = repr(self)
-            e.args = e.args + ("writing " + repr(cmd) + " to " + inst,)
+            e.args = (
+                *e.args,
+                f"writing {cmd!r} to {self!r}",
+            )
             raise e
 
     def write_raw(self, cmd: str) -> None:
@@ -392,6 +410,7 @@ class Instrument(InstrumentBase, metaclass=instrument_meta_class):
 
         Args:
             cmd: The string to send to the instrument.
+
         """
         raise NotImplementedError(
             f"Instrument {type(self).__name__} has not defined a write method"
@@ -414,6 +433,7 @@ class Instrument(InstrumentBase, metaclass=instrument_meta_class):
         Raises:
             Exception: Wraps any underlying exception with extra context,
                 including the command and the instrument.
+
         """
         try:
             answer = self.ask_raw(cmd)
@@ -421,8 +441,7 @@ class Instrument(InstrumentBase, metaclass=instrument_meta_class):
             return answer
 
         except Exception as e:
-            inst = repr(self)
-            e.args = e.args + ("asking " + repr(cmd) + " to " + inst,)
+            e.args = (*e.args, f"asking {cmd!r} to {self!r}")
             raise e
 
     def ask_raw(self, cmd: str) -> str:
@@ -435,6 +454,7 @@ class Instrument(InstrumentBase, metaclass=instrument_meta_class):
 
         Args:
             cmd: The string to send to the instrument.
+
         """
         raise NotImplementedError(
             f"Instrument {type(self).__name__} has not defined an ask method"
@@ -472,6 +492,7 @@ def find_or_create_instrument(
 
     Returns:
         The found or created instrument.
+
     """
     if not Instrument.exist(name, instrument_class=instrument_class):
         instrument = instrument_class(name, *args, **kwargs)

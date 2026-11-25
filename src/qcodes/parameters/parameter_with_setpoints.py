@@ -1,23 +1,34 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Generic
 
 import numpy as np
 
+from qcodes.parameters.parameter import (
+    Parameter,
+)
+from qcodes.parameters.parameter_base import (
+    InstrumentTypeVar_co,
+    ParameterBase,
+    ParameterDataTypeVar,
+    ParameterSet,
+)
 from qcodes.validators import Arrays, Validator
-
-from .parameter import Parameter
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from .parameter_base import ParamDataType, ParameterBase
+    from qcodes.dataset.data_set_protocol import ValuesType
+    from qcodes.parameters.parameter_base import ParamDataType, ParameterBase
 
 LOG = logging.getLogger(__name__)
 
 
-class ParameterWithSetpoints(Parameter):
+class ParameterWithSetpoints(
+    Parameter[ParameterDataTypeVar, InstrumentTypeVar_co],
+    Generic[ParameterDataTypeVar, InstrumentTypeVar_co],
+):
     """
     A parameter that has associated setpoints. The setpoints is nothing
     more than a list of other parameters that describe the values, names
@@ -49,8 +60,7 @@ class ParameterWithSetpoints(Parameter):
             )
         if vals.shape_unevaluated is None:
             raise RuntimeError(
-                "A ParameterWithSetpoints must have a shape "
-                "defined for its validator."
+                "A ParameterWithSetpoints must have a shape defined for its validator."
             )
 
         super().__init__(
@@ -155,6 +165,31 @@ class ParameterWithSetpoints(Parameter):
             self.validate_consistent_shape()
         super().validate(value)
 
+    @property
+    def depends_on(self) -> ParameterSet:
+        return ParameterSet(self.setpoints)
+
+    def unpack_self(self, value: ValuesType) -> list[tuple[ParameterBase, ValuesType]]:
+        unpacked_results: list[tuple[ParameterBase, ValuesType]] = []
+        setpoint_params = []
+        setpoint_data = []
+        for setpointparam in self.setpoints:
+            these_setpoints = setpointparam.get()
+            setpoint_params.append(setpointparam)
+            setpoint_data.append(these_setpoints)
+        output_grids = np.meshgrid(*setpoint_data, indexing="ij")
+        for param, grid in zip(setpoint_params, output_grids):
+            unpacked_results.append((param, grid))
+        unpacked_results.extend(
+            super().unpack_self(value)
+        )  # Must come last to preserve original ordering
+        return unpacked_results
+
+    def _set_paramtype(self, paramtype: str) -> None:
+        super()._set_paramtype(paramtype)
+        for setpoint in self.setpoints:
+            setpoint.paramtype = paramtype
+
 
 def expand_setpoints_helper(
     parameter: ParameterWithSetpoints, results: ParamDataType | None = None
@@ -173,25 +208,9 @@ def expand_setpoints_helper(
     Returns:
         A list of tuples of parameters and values for the specified parameter
         and its setpoints.
+
     """
-    if not isinstance(parameter, ParameterWithSetpoints):
-        raise TypeError(
-            f"Expanding setpoints only works for ParameterWithSetpoints. "
-            f"Supplied a {type(parameter)}"
-        )
-    res = []
-    setpoint_params = []
-    setpoint_data = []
-    for setpointparam in parameter.setpoints:
-        these_setpoints = setpointparam.get()
-        setpoint_params.append(setpointparam)
-        setpoint_data.append(these_setpoints)
-    output_grids = np.meshgrid(*setpoint_data, indexing="ij")
-    for param, grid in zip(setpoint_params, output_grids):
-        res.append((param, grid))
-    if results is None:
-        data = parameter.get()
+    if results is not None:
+        return parameter.unpack_self(results)
     else:
-        data = results
-    res.append((parameter, data))
-    return res
+        return parameter.unpack_self(parameter.get())

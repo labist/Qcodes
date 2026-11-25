@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from qcodes.dataset.sqlite.connection import ConnectionPlus, path_to_dbfile
+from qcodes.dataset.sqlite.connection import AtomicConnection, path_to_dbfile
 from qcodes.dataset.sqlite.queries import get_last_experiment
 
 _default_experiment: dict[str, int | None] = {}
@@ -16,6 +16,7 @@ def _set_default_experiment_id(db_path: str, exp_id: int) -> None:
     Args:
         db_path: The database that a created/ loaded experiment belongs to.
         exp_id: The exp_id of a created/ loaded experiment.
+
     """
     global _default_experiment
     _default_experiment[db_path] = exp_id
@@ -31,12 +32,13 @@ def _get_latest_default_experiment_id(db_path: str) -> int | None:
 
     Returns:
         The latest created/ loaded experiment's exp_id.
+
     """
     global _default_experiment
     return _default_experiment.get(db_path, None)
 
 
-def reset_default_experiment_id(conn: ConnectionPlus | None = None) -> None:
+def reset_default_experiment_id(conn: AtomicConnection | None = None) -> None:
     """
     Resets the default experiment id to to the last experiment in the db.
     """
@@ -48,7 +50,7 @@ def reset_default_experiment_id(conn: ConnectionPlus | None = None) -> None:
         _default_experiment[db_path] = None
 
 
-def get_default_experiment_id(conn: ConnectionPlus) -> int:
+def get_default_experiment_id(conn: AtomicConnection) -> int:
     """
     Returns the latest created/ loaded experiment's exp_id as the default
     experiment. If it is not set the maximum exp_id returned as the default.
@@ -62,6 +64,7 @@ def get_default_experiment_id(conn: ConnectionPlus) -> int:
 
     Raises:
         ValueError: If no experiment exists in the given db.
+
     """
     db_path = path_to_dbfile(conn)
     exp_id = _get_latest_default_experiment_id(db_path)

@@ -1,8 +1,12 @@
 import re
+from datetime import datetime
+from io import BytesIO
+from os.path import splitext
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 import numpy as np
+import numpy.typing as npt
 from pyvisa import VisaIOError
 from pyvisa.constants import StatusCode
 
@@ -45,7 +49,7 @@ class DSOTimeAxisParam(Parameter):
         self.xincrement = xincrement
         self.points = points
 
-    def get_raw(self) -> np.ndarray:
+    def get_raw(self) -> npt.NDArray:
         """
         Return the array corresponding to this time axis.
         """
@@ -73,7 +77,7 @@ class DSOFrequencyAxisParam(Parameter):
         self.xincrement = xincrement
         self.points = points
 
-    def get_raw(self) -> np.ndarray:
+    def get_raw(self) -> npt.NDArray:
         """
         Return the array corresponding to this time axis.
         """
@@ -102,7 +106,7 @@ class DSOTraceParam(ParameterWithSetpoints):
     def __init__(
         self,
         name: str,
-        instrument: Union["KeysightInfiniiumChannel", "KeysightInfiniiumFunction"],
+        instrument: "KeysightInfiniiumChannel | KeysightInfiniiumFunction",
         channel: str,
         **kwargs: Any,
     ):
@@ -170,7 +174,7 @@ class DSOTraceParam(ParameterWithSetpoints):
         """
         return
 
-    def update_setpoints(self, preamble: Optional["Sequence[str]"] = None) -> None:
+    def update_setpoints(self, preamble: "Sequence[str] | None" = None) -> None:
         """
         Update waveform parameters. Must be called before data
         acquisition if instr.cache_setpoints is False
@@ -201,7 +205,7 @@ class DSOTraceParam(ParameterWithSetpoints):
         instrument.frequency_axis.xorigin = float(preamble[5])
         instrument.frequency_axis.xincrement = float(preamble[4])
 
-    def get_raw(self) -> np.ndarray:
+    def get_raw(self) -> npt.NDArray:
         """
         Get waveform data from scope
         """
@@ -226,10 +230,10 @@ class DSOTraceParam(ParameterWithSetpoints):
         root_instr.write(":WAV:DATA?")
         # Ignore first two bytes, which should be "#0"
         _ = root_instr.visa_handle.read_bytes(2)
-        data: np.ndarray
+        data: npt.NDArray
         data = root_instr.visa_handle.read_binary_values(  # type: ignore[assignment]
             "h",
-            container=np.ndarray,
+            container=npt.NDArray,
             header_fmt="empty",
             expect_termination=True,
             data_points=self._points,
@@ -466,7 +470,7 @@ class AbstractMeasurementSubsystem(InstrumentModule):
 class KeysightInfiniiumBoundMeasurement(AbstractMeasurementSubsystem):
     def __init__(
         self,
-        parent: Union["KeysightInfiniiumChannel", "KeysightInfiniiumFunction"],
+        parent: "KeysightInfiniiumChannel | KeysightInfiniiumFunction",
         name: str,
         **kwargs: "Unpack[InstrumentBaseKWArgs]",
     ):
@@ -839,6 +843,7 @@ class KeysightInfiniium(VisaInstrument):
             channels: The number of channels on the scope.
             silence_pyvisapy_warning: Don't warn about pyvisa-py at startup
             **kwargs: kwargs are forwarded to base class.
+
         """
         super().__init__(name, address, **kwargs)
         self.connect_message()
@@ -1262,15 +1267,12 @@ class KeysightInfiniium(VisaInstrument):
         with_time: bool = False,
         time_fmt: str = "%Y-%m-%d_%H-%M-%S",
         divider: str = "_",
-    ) -> np.ndarray | None:
-        """save screen to {path} with {image_type}: bmp, jpg, gif, tif, png
+    ) -> npt.NDArray | None:
+        """Save screen to {path} with {image_type}: bmp, jpg, gif, tif, png
 
         return np.array if sucessfully saved, else return None
         """
-        from datetime import datetime
-        from io import BytesIO
-        from os.path import splitext
-
+        # we lazy import PIL here to avoid importing pillow when unused
         from PIL.Image import open as pil_open
 
         if isinstance(path, Path):

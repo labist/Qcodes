@@ -1,15 +1,15 @@
 import logging
 from functools import partial
-from typing import TYPE_CHECKING, Any, ClassVar, cast
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from qcodes import validators as vals
 from qcodes.instrument import (
-    ChannelList,
     InstrumentBaseKWArgs,
     InstrumentChannel,
     VisaInstrument,
     VisaInstrumentKWArgs,
 )
+from qcodes.instrument.channel import ChannelTuple
 from qcodes.utils import partial_with_docstring
 
 if TYPE_CHECKING:
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-class RigolDG1062Burst(InstrumentChannel):
+class RigolDG1062Burst(InstrumentChannel["RigolDG1062"]):
     """
     Burst commands for the DG1062. We make a separate channel for these to
     group burst commands together.
@@ -129,7 +129,7 @@ class RigolDG1062Burst(InstrumentChannel):
         self.parent.write_raw(f":SOUR{self.channel}:BURS:TRIG")
 
 
-class RigolDG1062Channel(InstrumentChannel):
+class RigolDG1062Channel(InstrumentChannel["RigolDG1062"]):
     min_impedance = 1
     max_impedance = 10000
 
@@ -171,6 +171,7 @@ class RigolDG1062Channel(InstrumentChannel):
             name: Name of the channel.
             channel: Number of the channel.
             **kwargs: Forwarded to base class.
+
         """
 
         super().__init__(parent, name, **kwargs)
@@ -208,9 +209,11 @@ class RigolDG1062Channel(InstrumentChannel):
                 vals.Enum("INF", "MIN", "MAX", "HighZ"),
             ),
             get_parser=(
-                lambda value: "HighZ"
-                if float(value) > RigolDG1062Channel.max_impedance
-                else float(value)
+                lambda value: (
+                    "HighZ"
+                    if float(value) > RigolDG1062Channel.max_impedance
+                    else float(value)
+                )
             ),
             set_parser=lambda value: "INF" if value == "HighZ" else value,
         )
@@ -260,8 +263,9 @@ class RigolDG1062Channel(InstrumentChannel):
         For other waveforms it will give the user an error
         """
 
-        burst = RigolDG1062Burst(cast(RigolDG1062, self.parent), "burst", self.channel)
-        self.add_submodule("burst", burst)
+        burst = RigolDG1062Burst(self.parent, "burst", self.channel)
+        self.burst: RigolDG1062Burst = self.add_submodule("burst", burst)
+        """"Burst submodule"""
 
         # We want to be able to do the following:
         # >>> help(gd.channels[0].sin)
@@ -298,7 +302,7 @@ class RigolDG1062Channel(InstrumentChannel):
         """Public interface to get the current waveform"""
         return self._get_waveform_params()
 
-    def _get_waveform_param(self, param: str) -> float:
+    def _get_waveform_param(self, param: str) -> float | None:
         """
         Get a parameter of the current waveform. Valid param names are
         dependent on the waveform type (e.g. "DC" does not have a "phase")
@@ -323,7 +327,7 @@ class RigolDG1062Channel(InstrumentChannel):
         current_waveform = self.waveform_translate[parts[0]]
         param_vals: list[str | float] = [current_waveform]
         param_vals += [to_float(i) for i in parts[1:]]
-        param_names = ["waveform"] + list(self.waveform_params[current_waveform])
+        param_names = ["waveform", *list(self.waveform_params[current_waveform])]
         params_dict = dict(zip(param_names, param_vals))
 
         return params_dict
@@ -342,7 +346,7 @@ class RigolDG1062Channel(InstrumentChannel):
 
         return self._set_waveform_params(**params_dict)
 
-    def _set_waveform_params(self, **params_dict: int | float) -> None:
+    def _set_waveform_params(self, **params_dict: float) -> None:
         """
         Apply a waveform with values given in a dictionary.
         """
@@ -368,7 +372,7 @@ class RigolDG1062Channel(InstrumentChannel):
         string += ",".join(values)
         self.parent.write_raw(string)
 
-    def _get_duty_cycle(self) -> float:
+    def _get_duty_cycle(self) -> str:
         """
         Reads the duty cycle after checking waveform
         """
@@ -412,13 +416,20 @@ class RigolDG1062(VisaInstrument):
     ):
         super().__init__(name, address, **kwargs)
 
-        channels = ChannelList(self, "channel", RigolDG1062Channel, snapshotable=False)
+        self.ch1 = self.add_submodule("ch1", RigolDG1062Channel(self, "ch1", 1))
+        """Channel 1 submodule"""
+        self.ch2 = self.add_submodule("ch2", RigolDG1062Channel(self, "ch2", 2))
+        """Channel 2 submodule"""
 
-        for ch_num in [1, 2]:
-            ch_name = f"ch{ch_num}"
-            channel = RigolDG1062Channel(self, ch_name, ch_num)
-            channels.append(channel)
-            self.add_submodule(ch_name, channel)
-
-        self.add_submodule("channels", channels.to_channel_tuple())
+        self.channels: ChannelTuple[RigolDG1062Channel] = self.add_submodule(
+            "channels",
+            ChannelTuple(
+                self,
+                "channel",
+                chan_type=RigolDG1062Channel,
+                chan_list=(self.ch1, self.ch2),
+                snapshotable=False,
+            ),
+        )
+        """Tuple of channels"""
         self.connect_message()

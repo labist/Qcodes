@@ -1,13 +1,22 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any, Generic, Literal, Protocol, overload
+
+from typing_extensions import TypeVar
+
+# due to circular imports we cannot import the TypeVar from parameter_base
+ParameterDataTypeVar = TypeVar("ParameterDataTypeVar", default=Any)
 
 if TYPE_CHECKING:
-    from .parameter_base import ParamDataType, ParameterBase, ParamRawDataType
+    from .parameter_base import (
+        ParameterBase,
+        ParamRawDataType,
+    )
 
 
-class _CacheProtocol(Protocol):
+# The protocol is private to qcodes but used elsewhere in the codebase
+class _CacheProtocol(Protocol, Generic[ParameterDataTypeVar]):  # noqa: PYI046
     """
     This protocol defines the interface that a Parameter Cache implementation
     must implement. This is currently used for 2 implementations, one in
@@ -28,24 +37,36 @@ class _CacheProtocol(Protocol):
 
     def invalidate(self) -> None: ...
 
-    def set(self, value: ParamDataType) -> None: ...
+    def set(self, value: ParameterDataTypeVar) -> None: ...
 
     def _set_from_raw_value(self, raw_value: ParamRawDataType) -> None: ...
 
-    def get(self, get_if_invalid: bool = True) -> ParamDataType: ...
+    @overload
+    def get(self, get_if_invalid: Literal[True]) -> ParameterDataTypeVar: ...
+
+    @overload
+    def get(self) -> ParameterDataTypeVar: ...
+
+    @overload
+    def get(self, get_if_invalid: Literal[False]) -> ParameterDataTypeVar | None: ...
+
+    @overload
+    def get(self, get_if_invalid: bool) -> ParameterDataTypeVar | None: ...
+
+    def get(self, get_if_invalid: bool = True) -> ParameterDataTypeVar | None: ...
 
     def _update_with(
         self,
         *,
-        value: ParamDataType,
+        value: ParameterDataTypeVar,
         raw_value: ParamRawDataType,
         timestamp: datetime | None = None,
     ) -> None: ...
 
-    def __call__(self) -> ParamDataType: ...
+    def __call__(self) -> ParameterDataTypeVar: ...
 
 
-class _Cache:
+class _Cache(Generic[ParameterDataTypeVar]):
     """
     Cache object for parameter to hold its value and raw value
 
@@ -62,11 +83,14 @@ class _Cache:
             update the cached value. If it is ``None``, this behavior is
             disabled. ``max_val_age`` should not be used for a parameter
             that does not have a get function.
+
     """
 
-    def __init__(self, parameter: ParameterBase, max_val_age: float | None = None):
+    def __init__(
+        self, parameter: ParameterBase, max_val_age: float | None = None
+    ) -> None:
         self._parameter = parameter
-        self._value: ParamDataType = None
+        self._value: ParameterDataTypeVar | None = None
         self._raw_value: ParamRawDataType = None
         self._timestamp: datetime | None = None
         self._max_val_age = max_val_age
@@ -113,7 +137,7 @@ class _Cache:
         """
         self._marked_valid = False
 
-    def set(self, value: ParamDataType) -> None:
+    def set(self, value: ParameterDataTypeVar) -> None:
         """
         Set the cached value of the parameter without invoking the
         ``set_cmd`` of the parameter (if it has one). For example, in case of
@@ -129,6 +153,7 @@ class _Cache:
 
         Args:
             value: new value for the parameter
+
         """
         self._parameter.validate(value)
         raw_value = self._parameter._from_value_to_raw_value(value)
@@ -143,7 +168,7 @@ class _Cache:
     def _update_with(
         self,
         *,
-        value: ParamDataType,
+        value: ParameterDataTypeVar,
         raw_value: ParamRawDataType,
         timestamp: datetime | None = None,
     ) -> None:
@@ -156,6 +181,7 @@ class _Cache:
             raw_value: new raw value of the parameter
             timestamp: new timestamp of the parameter; if ``None``,
                 then timestamp of "now" is used
+
         """
         self._value = value
         self._raw_value = raw_value
@@ -183,7 +209,19 @@ class _Cache:
             # parameter is still valid
             return False
 
-    def get(self, get_if_invalid: bool = True) -> ParamDataType:
+    @overload
+    def get(self, get_if_invalid: Literal[True]) -> ParameterDataTypeVar: ...
+
+    @overload
+    def get(self) -> ParameterDataTypeVar: ...
+
+    @overload
+    def get(self, get_if_invalid: Literal[False]) -> ParameterDataTypeVar | None: ...
+
+    @overload
+    def get(self, get_if_invalid: bool) -> ParameterDataTypeVar | None: ...
+
+    def get(self, get_if_invalid: bool = True) -> ParameterDataTypeVar | None:
         """
         Return cached value if time since get was less than ``max_val_age``,
         or the parameter was explicitly marked invalid.
@@ -197,6 +235,7 @@ class _Cache:
                 example, due to ``max_val_age``, because the parameter has
                 never been captured, or because the parameter was marked
                 invalid)
+
         """
 
         gettable = self._parameter.gettable
@@ -228,9 +267,7 @@ class _Cache:
             #  of setting max_val_age unfortunately this
             #  happens in init before get wrapping is performed.
             error_msg = (
-                "`max_val_age` is not supported "
-                "for a parameter without get "
-                "command."
+                "`max_val_age` is not supported for a parameter without get command."
             )
         else:
             # max_val_age is None and TS is not None but cache is
@@ -243,7 +280,7 @@ class _Cache:
             )
         return error_msg
 
-    def __call__(self) -> ParamDataType:
+    def __call__(self) -> ParameterDataTypeVar:
         """
         Same as :meth:`get` but always call ``get`` on parameter if the
         cache is not valid

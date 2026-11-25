@@ -1,7 +1,6 @@
 import logging
-from collections import namedtuple
 from itertools import chain
-from typing import Any, ClassVar
+from typing import Any, ClassVar, NamedTuple
 
 log = logging.getLogger(__name__)
 
@@ -19,7 +18,10 @@ except ImportError as e:
     raise ImportError(message) from e
 
 
-CmdArgs = namedtuple("CmdArgs", "cmd args")
+class CmdArgs(NamedTuple):
+    cmd: Any
+    args: list[Any]
+
 
 # The length of a command header, aka a command keyword
 # Every command sent from the driver via the server must have a
@@ -114,6 +116,7 @@ class CommandHandler:
         Returns:
             A tuple of a CmdArgs tuple and a bool indicating whether this was
             a query
+
         """
 
         def err_func() -> int:
@@ -146,6 +149,7 @@ class CommandHandler:
         Args:
             error_code: the error code returned from the MultiVu call
             vals: A list of the returned values (empty in case of a set cmd)
+
         """
         response = f"{error_code}"
 

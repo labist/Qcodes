@@ -3,12 +3,11 @@ from functools import partial
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-from typing_extensions import deprecated
+import numpy.typing as npt
 
 import qcodes.validators as vals
 from qcodes.instrument import (
     ChannelList,
-    Instrument,
     InstrumentBaseKWArgs,
     InstrumentChannel,
     VisaInstrument,
@@ -19,10 +18,8 @@ from qcodes.parameters import (
     ManualParameter,
     MultiParameter,
     Parameter,
-    ParamRawDataType,
     create_on_off_val_mapping,
 )
-from qcodes.utils import QCoDeSDeprecationWarning
 
 if TYPE_CHECKING:
     from typing_extensions import Unpack
@@ -30,7 +27,12 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-class FixedFrequencyTraceIQ(MultiParameter):
+class FixedFrequencyTraceIQ(
+    MultiParameter[
+        tuple[npt.NDArray[np.floating], npt.NDArray[np.floating]],
+        "RohdeSchwarzZNBChannel",
+    ]
+):
     """
     Parameter for sweep that returns the real (I) and imaginary (Q) parts of
     the VNA response.
@@ -89,18 +91,22 @@ class FixedFrequencyTraceIQ(MultiParameter):
         self.setpoints = ((t,), (t,))
         self.shapes = ((npts,), (npts,))
 
-    def get_raw(self) -> tuple[np.ndarray, np.ndarray]:
+    def get_raw(self) -> tuple[npt.NDArray, npt.NDArray]:
         """
         Gets the raw real and imaginary part of the data. If parameter
         `cw_check_sweep_first` is set to `True` then at the cost of a few ms
         overhead checks if the vna is setup correctly.
         """
-        assert isinstance(self.instrument, RohdeSchwarzZNBChannel)
         i, q = self.instrument._get_cw_data()
         return i, q
 
 
-class FixedFrequencyPointIQ(MultiParameter):
+class FixedFrequencyPointIQ(
+    MultiParameter[
+        tuple[float, float],
+        "RohdeSchwarzZNBChannel",
+    ]
+):
     """
     Parameter for sweep that returns the mean of the real (I) and imaginary (Q)
     parts of the VNA response.
@@ -114,6 +120,7 @@ class FixedFrequencyPointIQ(MultiParameter):
     Args:
         name: parameter name
         instrument: instrument the parameter belongs to
+
     """
 
     def __init__(
@@ -142,12 +149,16 @@ class FixedFrequencyPointIQ(MultiParameter):
         parameter `cw_check_sweep_first` is set to `True` then at the cost of a
         few ms overhead checks if the vna is setup correctly.
         """
-        assert isinstance(self.instrument, RohdeSchwarzZNBChannel)
         i, q = self.instrument._get_cw_data()
         return float(np.mean(i)), float(np.mean(q))
 
 
-class FixedFrequencyPointMagPhase(MultiParameter):
+class FixedFrequencyPointMagPhase(
+    MultiParameter[
+        tuple[float, float],
+        "RohdeSchwarzZNBChannel",
+    ]
+):
     """
     Parameter for sweep that returns the magnitude of mean of the real (I) and
     imaginary (Q) parts of the VNA response and it's phase.
@@ -159,6 +170,7 @@ class FixedFrequencyPointMagPhase(MultiParameter):
     Args:
         name: parameter name
         instrument: instrument the parameter belongs to
+
     """
 
     def __init__(
@@ -184,20 +196,24 @@ class FixedFrequencyPointMagPhase(MultiParameter):
             **kwargs,
         )
 
-    def get_raw(self) -> tuple[float, ...]:
+    def get_raw(self) -> tuple[float, float]:
         """
         Gets the magnitude and phase of the mean of the raw real and imaginary
         part of the data. If the parameter `cw_check_sweep_first` is set to
         `True` for the instrument then at the cost of a few ms overhead
         checks if the vna is setup correctly.
         """
-        assert isinstance(self.instrument, RohdeSchwarzZNBChannel)
         i, q = self.instrument._get_cw_data()
         s = np.mean(i) + 1j * np.mean(q)
         return float(np.abs(s)), float(np.angle(s))
 
 
-class FrequencySweepMagPhase(MultiParameter):
+class FrequencySweepMagPhase(
+    MultiParameter[
+        tuple[npt.NDArray[np.floating], npt.NDArray[np.floating]],
+        "RohdeSchwarzZNBChannel",
+    ]
+):
     """
     Sweep that return magnitude and phase.
     """
@@ -246,14 +262,18 @@ class FrequencySweepMagPhase(MultiParameter):
         self.setpoints = ((f,), (f,))
         self.shapes = ((npts,), (npts,))
 
-    def get_raw(self) -> tuple[ParamRawDataType, ...]:
-        assert isinstance(self.instrument, RohdeSchwarzZNBChannel)
+    def get_raw(self) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating]]:
         with self.instrument.format.set_to("Complex"):
             data = self.instrument._get_sweep_data(force_polar=True)
         return abs(data), np.angle(data)
 
 
-class FrequencySweepDBPhase(MultiParameter):
+class FrequencySweepDBPhase(
+    MultiParameter[
+        tuple[npt.NDArray[np.floating], npt.NDArray[np.floating]],
+        "RohdeSchwarzZNBChannel",
+    ]
+):
     """
     Sweep that return magnitude in decibel (dB) and phase in radians.
     """
@@ -302,14 +322,18 @@ class FrequencySweepDBPhase(MultiParameter):
         self.setpoints = ((f,), (f,))
         self.shapes = ((npts,), (npts,))
 
-    def get_raw(self) -> tuple[ParamRawDataType, ...]:
-        assert isinstance(self.instrument, RohdeSchwarzZNBChannel)
+    def get_raw(self) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating]]:
         with self.instrument.format.set_to("Complex"):
             data = self.instrument._get_sweep_data(force_polar=True)
         return 20 * np.log10(np.abs(data)), np.angle(data)
 
 
-class FrequencySweep(ArrayParameter):
+class FrequencySweep(
+    ArrayParameter[
+        npt.NDArray[np.floating],
+        "RohdeSchwarzZNBChannel",
+    ]
+):
     """
     Hardware controlled parameter class for Rohde Schwarz ZNB trace.
 
@@ -331,7 +355,7 @@ class FrequencySweep(ArrayParameter):
     def __init__(
         self,
         name: str,
-        instrument: Instrument,
+        instrument: "RohdeSchwarzZNBChannel",
         start: float,
         stop: float,
         npts: int,
@@ -354,7 +378,7 @@ class FrequencySweep(ArrayParameter):
 
     def set_sweep(self, start: float, stop: float, npts: int) -> None:
         """
-        sets the shapes and setpoint arrays of the parameter to
+        Sets the shapes and setpoint arrays of the parameter to
         correspond with the sweep
 
         Args:
@@ -369,8 +393,7 @@ class FrequencySweep(ArrayParameter):
         self.setpoints = (f,)
         self.shape = (npts,)
 
-    def get_raw(self) -> ParamRawDataType:
-        assert isinstance(self.instrument, RohdeSchwarzZNBChannel)
+    def get_raw(self) -> npt.NDArray[np.floating]:
         return self.instrument._get_sweep_data()
 
 
@@ -396,6 +419,7 @@ class RohdeSchwarzZNBChannel(InstrumentChannel):
                 If supplied try to bind to an existing trace with this name
                 rather than creating a new trace.
             **kwargs: Forwarded to base class.
+
         """
         n = channel
         self._instrument_channel = channel
@@ -439,11 +463,29 @@ class RohdeSchwarzZNBChannel(InstrumentChannel):
             "ZNB8": -80,
             "ZNB20": -60,
             "ZNB40": -60,
+            "ZNLE3": -10,
+            "ZNLE4": -10,
+            "ZNLE6": -10,
+            "ZNLE14": -10,
+            "ZNLE18": -10,
+        }
+        self._model_max_source_power = {
+            "ZNB4": 25,
+            "ZNB8": 25,
+            "ZNB20": 25,
+            "ZNB40": 25,
+            "ZNLE3": 0,
+            "ZNLE4": 0,
+            "ZNLE6": 0,
+            "ZNLE14": 0,
+            "ZNLE18": 0,
         }
         if model not in self._model_min_source_power.keys():
             raise RuntimeError(f"Unsupported ZNB model: {model}")
         self._min_source_power: float
         self._min_source_power = self._model_min_source_power[model]
+        self._max_source_power: float
+        self._max_source_power = self._model_max_source_power[model]
 
         self.vna_parameter: Parameter = self.add_parameter(
             name="vna_parameter",
@@ -459,7 +501,7 @@ class RohdeSchwarzZNBChannel(InstrumentChannel):
             get_cmd=f"SOUR{n}:POW?",
             set_cmd=f"SOUR{n}:POW {{:.4f}}",
             get_parser=float,
-            vals=vals.Numbers(self._min_source_power, 25),
+            vals=vals.Numbers(self._min_source_power, self._max_source_power),
         )
         """Parameter power"""
         self.bandwidth: Parameter = self.add_parameter(
@@ -715,12 +757,13 @@ class RohdeSchwarzZNBChannel(InstrumentChannel):
         using the other channel settings and zero delay
         """
 
-        self.add_function(
-            "set_electrical_delay_auto", call_cmd=f"SENS{n}:CORR:EDEL:AUTO ONCE"
-        )
-        self.add_function(
-            "autoscale",
-            call_cmd=f"DISPlay:TRACe1:Y:SCALe:AUTO ONCE, {self._tracename}",
+    def set_electrical_delay_auto(self) -> None:
+        n = self._instrument_channel
+        self.root_instrument.write(f"SENS{n}:CORR:EDEL:AUTO ONCE")
+
+    def autoscale(self) -> None:
+        self.root_instrument.write(
+            f"DISPlay:TRACe1:Y:SCALe:AUTO ONCE, {self._tracename}"
         )
 
     def _get_format(self, tracename: str) -> str:
@@ -865,7 +908,7 @@ class RohdeSchwarzZNBChannel(InstrumentChannel):
                     pass
         self.sweep_time()
 
-    def _get_sweep_data(self, force_polar: bool = False) -> np.ndarray:
+    def _get_sweep_data(self, force_polar: bool = False) -> npt.NDArray:
         if not self._parent.rf_power():
             log.warning("RF output is off when getting sweep data")
         # It is possible that the instrument and QCoDeS disagree about
@@ -898,12 +941,10 @@ class RohdeSchwarzZNBChannel(InstrumentChannel):
                     for _ in range(self.avg()):
                         self.write(f"INIT{self._instrument_channel}:IMM; *WAI")
                     self.write(
-                        f"CALC{self._instrument_channel}:PAR:SEL "
-                        f"'{self._tracename}'"
+                        f"CALC{self._instrument_channel}:PAR:SEL '{self._tracename}'"
                     )
                     data_str = self.ask(
-                        f"CALC{self._instrument_channel}:DATA?"
-                        f" {data_format_command}"
+                        f"CALC{self._instrument_channel}:DATA? {data_format_command}"
                     )
                 data = np.array(data_str.rstrip().split(",")).astype("float64")
                 if self.format() in ["Polar", "Complex", "Smith", "Inverse Smith"]:
@@ -979,7 +1020,7 @@ class RohdeSchwarzZNBChannel(InstrumentChannel):
         # Cache the sweep time so it is up to date when setting timeouts
         self.sweep_time()
 
-    def _get_cw_data(self) -> tuple[np.ndarray, np.ndarray]:
+    def _get_cw_data(self) -> tuple[npt.NDArray, npt.NDArray]:
         # Make the checking optional such that we can do super fast sweeps as
         # well, skipping the overhead of the other commands.
         if self.cw_check_sweep_first():
@@ -1006,10 +1047,10 @@ ZNBChannel = RohdeSchwarzZNBChannel
 
 class RohdeSchwarzZNBBase(VisaInstrument):
     """
-    Base class for QCoDeS driver for the Rohde & Schwarz ZNB8 and ZNB20
-    virtual network analyser. It can probably be extended to ZNB4 and 40
-    without too much work. This class should not be instantiated directly
-    the RohdeSchwarzZNB8 and RohdeSchwarzZNB20 should be used instead.
+    Base class for QCoDeS driver for the Rohde & Schwarz
+    ZNB4, ZNB8, ZNB20, ZNB40, ZNLE3, ZNLE4, ZNLE6, ZNLE14 and ZNLE18.
+    This class should not be instantiated directly
+    the ZNB and ZNLE should be used instead.
 
     Requires FrequencySweep parameter for taking a trace
 
@@ -1025,6 +1066,7 @@ class RohdeSchwarzZNBBase(VisaInstrument):
 
     Todo:
         - check initialisation settings and test functions
+
     """
 
     CHANNEL_CLASS = ZNBChannel
@@ -1055,6 +1097,11 @@ class RohdeSchwarzZNBBase(VisaInstrument):
             "ZNB8": (9e3, 8.5e9),
             "ZNB20": (100e3, 20e9),
             "ZNB40": (10e6, 40e9),
+            "ZNLE3": (1e6, 3e9),
+            "ZNLE4": (1e6, 4e9),
+            "ZNLE6": (1e6, 6e9),
+            "ZNLE14": (1e6, 14e9),
+            "ZNLE18": (1e6, 18e9),
         }
         if model not in m_frequency.keys():
             raise RuntimeError(f"Unsupported ZNB model {model}")
@@ -1062,7 +1109,7 @@ class RohdeSchwarzZNBBase(VisaInstrument):
         self._max_freq: float
         self._min_freq, self._max_freq = m_frequency[model]
 
-        self.num_ports: Parameter = self.add_parameter(
+        self.num_ports: Parameter[int, RohdeSchwarzZNBBase] = self.add_parameter(
             name="num_ports", get_cmd="INST:PORT:COUN?", get_parser=int
         )
         """Parameter num_ports"""
@@ -1122,41 +1169,23 @@ class RohdeSchwarzZNBBase(VisaInstrument):
         For external reference: check frequency and level of the supplied
         reference signal.
         """
-
-        self.add_function("reset", call_cmd="*RST")
-        self.add_function("tooltip_on", call_cmd="SYST:ERR:DISP ON")
-        self.add_function("tooltip_off", call_cmd="SYST:ERR:DISP OFF")
-        self.add_function("cont_meas_on", call_cmd="INIT:CONT:ALL ON")
-        self.add_function("cont_meas_off", call_cmd="INIT:CONT:ALL OFF")
-        self.add_function("update_display_once", call_cmd="SYST:DISP:UPD ONCE")
-        self.add_function("update_display_on", call_cmd="SYST:DISP:UPD ON")
-        self.add_function("update_display_off", call_cmd="SYST:DISP:UPD OFF")
-        self.add_function(
-            "display_sij_split",
-            call_cmd=f"DISP:LAY GRID;:DISP:LAY:GRID {num_ports},{num_ports}",
-        )
-        self.add_function(
-            "display_single_window", call_cmd="DISP:LAY GRID;:DISP:LAY:GRID 1,1"
-        )
-        self.add_function(
-            "display_dual_window", call_cmd="DISP:LAY GRID;:DISP:LAY:GRID 2,1"
-        )
-        self.add_function("rf_off", call_cmd="OUTP1 OFF")
-        self.add_function("rf_on", call_cmd="OUTP1 ON")
         if reset_channels:
             self.reset()
             self.clear_channels()
         channels = ChannelList(
             self, "VNAChannels", self.CHANNEL_CLASS, snapshotable=True
         )
-        self.add_submodule("channels", channels)
+        self.channels: ChannelList[RohdeSchwarzZNBChannel] = self.add_submodule(
+            "channels", channels
+        )
+        """Submodule channels: List of VNA channels."""
         if init_s_params:
             for i in range(1, num_ports + 1):
                 for j in range(1, num_ports + 1):
                     ch_name = "S" + str(i) + str(j)
                     self.add_channel(ch_name)
             self.display_sij_split()
-            self.channels.autoscale()
+            self.channels.multi_function("autoscale")()
 
         self.update_display_on()
         if reset_channels:
@@ -1202,10 +1231,45 @@ class RohdeSchwarzZNBBase(VisaInstrument):
             if isinstance(submodule, ChannelList):
                 submodule.clear()
 
+    def reset(self) -> None:
+        """
+        Reset the instrument to default settings.
+        """
+        self.write("*RST")
 
-@deprecated(
-    "The ZNB base class has been renamed RohdeSchwarzZNBBase",
-    category=QCoDeSDeprecationWarning,
-)
-class ZNB(RohdeSchwarzZNBBase):
-    pass
+    def update_display_on(self) -> None:
+        self.write("SYST:DISP:UPD ON")
+
+    def tooltip_on(self) -> None:
+        self.write("SYST:ERR:DISP ON")
+
+    def tooltip_off(self) -> None:
+        self.write("SYST:ERR:DISP OFF")
+
+    def cont_meas_on(self) -> None:
+        self.write("INIT:CONT:ALL ON")
+
+    def cont_meas_off(self) -> None:
+        self.write("INIT:CONT:ALL OFF")
+
+    def update_display_once(self) -> None:
+        self.write("SYST:DISP:UPD ONCE")
+
+    def update_display_off(self) -> None:
+        self.write("SYST:DISP:UPD OFF")
+
+    def display_sij_split(self) -> None:
+        num_ports = self.num_ports.cache.get()
+        self.write(f"DISP:LAY GRID;:DISP:LAY:GRID {num_ports},{num_ports}")
+
+    def display_single_window(self) -> None:
+        self.write("DISP:LAY GRID;:DISP:LAY:GRID 1,1")
+
+    def display_dual_window(self) -> None:
+        self.write("DISP:LAY GRID;:DISP:LAY:GRID 2,1")
+
+    def rf_off(self) -> None:
+        self.write("OUTP1 OFF")
+
+    def rf_on(self) -> None:
+        self.write("OUTP1 ON")
